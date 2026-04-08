@@ -1,0 +1,19 @@
+[project]
+name = "cc-python"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "openai>=1.0.0",
+    "click>=8.1",
+    "rich>=13.0",
+]
+
+[project.scripts]
+cc-python = "cc_python.cli:main"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
