@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from cc_python.compact import auto_compact_if_needed
+from cc_python.tool_result_storage import process_tool_result
 from cc_python.config import (
     apply_settings_env,
     get_context_window,
@@ -364,6 +365,8 @@ async def _execute_tools_concurrent(
                     result_text = await tool.call(**tb["input"])
                 except Exception as e:
                     result_text = f"工具执行错误: {e}"
+            # 处理大型工具结果（持久化到磁盘）
+            result_text = process_tool_result(result_text, tb["id"], tb["name"])
             # PostToolUse Hook
             hook_results = await dispatch_hooks(
                 event=HookEvent.POST_TOOL_USE,
@@ -397,6 +400,8 @@ async def _execute_tools_concurrent(
             result_text = await tool.call(**tb["input"])
         except Exception as e:
             result_text = f"工具执行错误: {e}"
+        # 处理大型工具结果（持久化到磁盘）
+        result_text = process_tool_result(result_text, tb["id"], tb["name"])
         # PostToolUse Hook
         hook_results = await dispatch_hooks(
             event=HookEvent.POST_TOOL_USE,

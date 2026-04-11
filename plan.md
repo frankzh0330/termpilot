@@ -10,7 +10,7 @@
 | 4. Hooks 系统 | 用户可配置的 shell 命令钩子 | ✅ 已完成 |
 | 5. CLAUDE.md | 项目级持久化指令读取注入 | ✅ 已完成 |
 | 6. 上下文压缩 | 对话过长时自动压缩历史消息 | ✅ 已完成 |
-| 7. Message + Attachments 增强 | 消息规范化 + 附件处理 | 🔲 未实现 |
+| 7. Message + Attachments 增强 | 消息规范化 + 附件处理 | ✅ 已完成 |
 | 8. 高级工具 | Agent/Task/AskUserQuestion | 🔲 未实现 |
 | 9. MCP + Skills + Commands | MCP 集成、Skill 系统、Slash 命令 | ✅ 已完成 |
 

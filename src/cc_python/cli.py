@@ -16,6 +16,7 @@ from rich.table import Table
 from rich.text import Text
 
 from cc_python.api import create_client, query_with_tools
+from cc_python.attachments import process_attachments
 from cc_python.commands import CommandResult, dispatch_command, parse_slash_command
 from cc_python.config import get_effective_model
 from cc_python.context import build_system_prompt
@@ -392,7 +393,14 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
             if hook_feedback:
                 effective_input += "\n\n<user-prompt-submit-hook>\n" + "\n".join(hook_feedback) + "\n</user-prompt-submit-hook>"
 
-            messages.append(create_user_message(effective_input))
+            # 处理文件附件（@file 引用）
+            attachment_blocks = process_attachments(effective_input)
+            if attachment_blocks:
+                # 将附件和文本一起作为 content blocks
+                content_blocks = [{"type": "text", "text": effective_input}] + attachment_blocks
+                messages.append(create_user_message(content_blocks))
+            else:
+                messages.append(create_user_message(effective_input))
             storage.record_user_message(user_input)
 
             full_response = await _stream_response_with_tools(
