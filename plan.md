@@ -429,8 +429,8 @@ has_permission_to_use_tool(tool, input):
 |---------|---------|------|------|
 | **WebFetch 工具** | `tools/WebFetchTool/` | ~9K | ✅ 已实现：httpx + markdownify，SSRF 防护 + 15min 缓存 |
 | **WebSearch 工具** | `tools/WebSearchTool/` | ~13K | ✅ 已实现：DuckDuckGo 搜索，域名过滤 |
-| **Token 精确计数** | `utils/tokens.ts` | — | 当前用 `char/3` 近似，应接入 tiktoken 或 API usage 数据 |
-| **费用追踪** | API response usage | — | 从 API 返回的 input/output tokens 计算成本 |
+| **Token 精确计数** | `utils/tokens.ts` | — | ✅ 已实现：从 API usage 提取真实 token 数 |
+| **费用追踪** | API response usage | — | ✅ 已实现：按模型定价计算，每轮显示费用 |
 | **Undo/回退** | `utils/diff.ts` | ~5K | 文件修改前保存快照，支持 `/undo` 回退 |
 | **对话标题** | `utils/sessionTitle.ts` | ~5K | AI 自动生成会话标题，用于 session 列表展示 |
 | **/commit 命令** | `commands/commit.ts` | — | 生成 commit message 并执行 git commit |

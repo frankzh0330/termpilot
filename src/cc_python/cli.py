@@ -109,6 +109,7 @@ async def _stream_response_with_tools(
         storage: SessionStorage | None = None,
         permission_context: PermissionContext | None = None,
         session_id: str = "",
+        cost_tracker: Any | None = None,
 ) -> str:
     """带工具调用的流式响应。
 
@@ -158,12 +159,21 @@ async def _stream_response_with_tools(
         permission_context=permission_context,
         on_permission_ask=_permission_prompt,
         session_id=session_id,
+        cost_tracker=cost_tracker,
     )
 
     # 最终渲染完整响应
     if full_response.strip():
         console.print()
         console.print(Markdown(full_response))
+
+    # 显示本轮费用
+    if cost_tracker:
+        from cc_python.token_tracker import CostTracker
+        total = cost_tracker.total_usage
+        if total.total_tokens > 0:
+            console.print()
+            console.print(f"[dim]{cost_tracker.format_per_response(model, total)}[/]")
 
     return full_response
 
@@ -226,10 +236,14 @@ async def _async_single_prompt(prompt: str, model: str) -> None:
     storage.record_user_message(prompt)
     logger.debug("sending single prompt to API (%d chars)", len(effective_prompt))
 
+    from cc_python.token_tracker import CostTracker
+    cost_tracker = CostTracker()
+
     response = await _stream_response_with_tools(
         client, client_format, model, system_prompt, messages, tools, storage,
         permission_context=permission_context,
         session_id=storage.session_id or "",
+        cost_tracker=cost_tracker,
     )
 
     storage.record_assistant_message(response)
@@ -330,6 +344,9 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
         if mcp_tools:
             mcp_info = f"\nMCP: {len(mcp_tools)} 工具 ({', '.join(t['full_name'] for t in mcp_tools[:3])}{'...' if len(mcp_tools) > 3 else ''})"
 
+    from cc_python.token_tracker import CostTracker
+    cost_tracker = CostTracker()
+
     console.print(
         Panel(
             Text.from_markup(
@@ -398,6 +415,7 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
                         client, client_format, model, system_prompt, messages, tools, storage,
                         permission_context=permission_context,
                         session_id=storage.session_id or "",
+                        cost_tracker=cost_tracker,
                     )
                     messages.append({**create_assistant_message(full_response), "_timestamp": time.time()})
                     storage.record_assistant_message(full_response)
@@ -453,6 +471,7 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
                 client, client_format, model, system_prompt, messages, tools, storage,
                 permission_context=permission_context,
                 session_id=storage.session_id or "",
+                cost_tracker=cost_tracker,
             )
 
             messages.append({**create_assistant_message(full_response), "_timestamp": time.time()})
@@ -471,6 +490,11 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
         except KeyboardInterrupt:
             console.print("\n[dim]再见！[/]")
             break
+
+    # 显示费用汇总
+    if cost_tracker.get_total_cost() > 0:
+        console.print()
+        console.print(f"[dim]{cost_tracker.format_report()}[/]")
 
     # 清理 MCP 连接
     await mcp_manager.shutdown()

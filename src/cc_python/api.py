@@ -156,6 +156,22 @@ async def _call_anthropic_streaming(
                 "input": input_data,
             }
 
+        # 产出 usage 事件（精确 token 计数）
+        try:
+            final_msg = await stream.get_final_message()
+            if hasattr(final_msg, "usage") and final_msg.usage:
+                yield {
+                    "type": "usage",
+                    "usage": {
+                        "input_tokens": getattr(final_msg.usage, "input_tokens", 0) or 0,
+                        "output_tokens": getattr(final_msg.usage, "output_tokens", 0) or 0,
+                        "cache_creation_input_tokens": getattr(final_msg.usage, "cache_creation_input_tokens", 0) or 0,
+                        "cache_read_input_tokens": getattr(final_msg.usage, "cache_read_input_tokens", 0) or 0,
+                    },
+                }
+        except Exception:
+            logger.debug("could not extract usage from Anthropic stream")
+
 
 async def _call_openai_streaming(
     client: Any,
@@ -233,6 +249,21 @@ async def _call_openai_streaming(
             "name": tc["name"],
             "input": input_data,
         }
+
+    # 产出 usage 事件（OpenAI 格式）
+    try:
+        if hasattr(stream, "usage") and stream.usage:
+            yield {
+                "type": "usage",
+                "usage": {
+                    "input_tokens": getattr(stream.usage, "prompt_tokens", 0) or 0,
+                    "output_tokens": getattr(stream.usage, "completion_tokens", 0) or 0,
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 0,
+                },
+            }
+    except Exception:
+        logger.debug("could not extract usage from OpenAI stream")
 
 
 async def _execute_tools_concurrent(
@@ -451,6 +482,7 @@ async def query_with_tools(
     permission_context: PermissionContext | None = None,
     on_permission_ask: Any = None,
     session_id: str = "",
+    cost_tracker: Any | None = None,
 ) -> str:
     """带工具调用的完整查询循环。
 
@@ -491,6 +523,7 @@ async def query_with_tools(
         logger.debug("--- API loop iteration %d ---", iteration)
         text_chunks: list[str] = []
         tool_use_blocks: list[dict[str, Any]] = []
+        iteration_usage: dict[str, int] | None = None
 
         # 选择对应的流式调用
         if client_format == "anthropic":
@@ -509,6 +542,19 @@ async def query_with_tools(
                     on_text(event["content"])
             elif event["type"] == "tool_use":
                 tool_use_blocks.append(event)
+            elif event["type"] == "usage":
+                iteration_usage = event["usage"]
+
+        assistant_text = "".join(text_chunks)
+
+        # 记录 token 用量
+        if iteration_usage and cost_tracker:
+            from cc_python.token_tracker import TokenUsage
+            usage = TokenUsage(**iteration_usage)
+            cost_tracker.add_usage(model, usage)
+            logger.debug("usage: in=%d, out=%d, cache_write=%d, cache_read=%d",
+                         usage.input_tokens, usage.output_tokens,
+                         usage.cache_creation_input_tokens, usage.cache_read_input_tokens)
 
         assistant_text = "".join(text_chunks)
 
