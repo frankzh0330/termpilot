@@ -192,3 +192,5 @@ cli.py: Stop Hook
 | `session.py` | `utils/conversation.ts` | ~2000 |
 | `messages.py` | `utils/messages.ts` | ~5500 |
 | `tools/*.py` | `tools/*Tool/` | ~2500 |
+| `compact.py` | `services/compact/` | ~3000 |
+| `token_tracker.py` | `utils/tokens.ts` + `utils/cost-tracker.ts` | ~2000 |
