@@ -387,8 +387,8 @@ has_permission_to_use_tool(tool, input):
 
 | TS 工具 | 行数 | Python 状态 | 优先级 |
 |---------|------|------------|--------|
-| WebFetchTool | ~9K | 🔲 | 高 |
-| WebSearchTool | ~13K | 🔲 | 高 |
+| WebFetchTool | ~9K | ✅ | 高 |
+| WebSearchTool | ~13K | ✅ | 高 |
 | TodoWriteTool | ~4K | 🔲 | 中 |
 | ScheduleCronTool | — | 🔲 | 中 |
 | EnterWorktreeTool | ~4K | 🔲 | 中 |
@@ -427,8 +427,8 @@ has_permission_to_use_tool(tool, input):
 
 | 缺失功能 | TS 源码 | 行数 | 说明 |
 |---------|---------|------|------|
-| **WebFetch 工具** | `tools/WebFetchTool/` | ~9K | HTTP 抓取网页内容，支持 HTML→Markdown 转换 |
-| **WebSearch 工具** | `tools/WebSearchTool/` | ~13K | 网页搜索（MCP 可部分替代，但内置更可靠） |
+| **WebFetch 工具** | `tools/WebFetchTool/` | ~9K | ✅ 已实现：httpx + markdownify，SSRF 防护 + 15min 缓存 |
+| **WebSearch 工具** | `tools/WebSearchTool/` | ~13K | ✅ 已实现：DuckDuckGo 搜索，域名过滤 |
 | **Token 精确计数** | `utils/tokens.ts` | — | 当前用 `char/3` 近似，应接入 tiktoken 或 API usage 数据 |
 | **费用追踪** | API response usage | — | 从 API 返回的 input/output tokens 计算成本 |
 | **Undo/回退** | `utils/diff.ts` | ~5K | 文件修改前保存快照，支持 `/undo` 回退 |

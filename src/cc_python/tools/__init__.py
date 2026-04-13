@@ -5,9 +5,12 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from cc_python.tools.base import Tool, tool_to_api_schema
+
+logger = logging.getLogger(__name__)
 
 
 def get_all_tools(mcp_manager: Any | None = None) -> list[Tool]:
@@ -53,6 +56,19 @@ def get_all_tools(mcp_manager: Any | None = None) -> list[Tool]:
         ExitPlanModeTool(),
         NotebookEditTool(),
     ])
+
+    # Web tools (Phase 10)
+    try:
+        from cc_python.tools.web_fetch import WebFetchTool
+        tools.append(WebFetchTool())
+    except ImportError:
+        logger.debug("web_fetch tool not available (missing optional dependencies)")
+
+    try:
+        from cc_python.tools.web_search import WebSearchTool
+        tools.append(WebSearchTool())
+    except ImportError:
+        logger.debug("web_search tool not available (missing optional dependencies)")
 
     # MCP 工具
     if mcp_manager and mcp_manager.is_connected:

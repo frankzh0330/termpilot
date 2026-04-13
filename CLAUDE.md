@@ -30,7 +30,7 @@ src/cc_python/
 │   ├── client.py   # MCP 客户端（JSON-RPC 通信）
 │   ├── transport.py # 传输层（stdio/sse）
 │   └── config.py   # MCP 配置读取
-└── tools/          # 工具（6 核心 + MCP 动态 + Skill）
+└── tools/          # 工具（6 核心 + Web + MCP 动态 + Skill）
 ```
 
 ## 关键文档
