@@ -307,9 +307,9 @@ def load_session(session_id: str, cwd: str | None = None) -> list[dict[str, Any]
 
     对应 TS conversationRecovery.ts loadConversationForResume()。
 
-    TS 版用 parentUuid 链回溯（buildConversationChain），支持分叉。
-    Python 简化版：JSONL 本身按时间追加，直接顺序读取即可。
-    如果后续需要支持分叉，再改为链回溯。
+    使用 parentUuid 链回溯（buildConversationChain），支持分叉会话。
+    找到最新的叶节点，沿 parentUuid 回溯到根，再反转得到完整链。
+    同时恢复被链回溯遗漏的并行工具结果。
 
     返回格式：[{"role": "user/assistant", "content": "..."}, ...]
     可直接用于 query_with_tools() 的 messages 参数。
@@ -319,11 +319,21 @@ def load_session(session_id: str, cwd: str | None = None) -> list[dict[str, Any]
     entries = _parse_jsonl(file_path)
     logger.debug("load_session: %s → %d entries from %s", session_id[:8], len(entries), file_path)
 
-    # 从 entries 中提取 transcript，按写入顺序（即时间顺序）
+    if not entries:
+        return []
+
+    # 过滤 transcript entries
+    transcript_entries = [e for e in entries if e.get("type") == "transcript"]
+
+    if not transcript_entries:
+        return []
+
+    # 构建链
+    chain = _build_conversation_chain(transcript_entries)
+
+    # 转换为 API 消息格式
     messages = []
-    for entry in entries:
-        if entry.get("type") != "transcript":
-            continue
+    for entry in chain:
         msg = entry.get("message", {})
         role = msg.get("role")
         content = msg.get("content")
@@ -331,6 +341,149 @@ def load_session(session_id: str, cwd: str | None = None) -> list[dict[str, Any]
             messages.append({"role": role, "content": content})
 
     return messages
+
+
+def _build_conversation_chain(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """通过 parentUuid 链回溯构建对话链。
+
+    对应 TS conversationRecovery.ts buildConversationChain()。
+
+    算法：
+    1. 构建 uuid → entry 的映射
+    2. 找到最新的叶节点（没有子节点的 entry）
+    3. 从叶节点沿 parentUuid 回溯到根
+    4. 反转得到时间正序的对话链
+    5. 恢复并行工具结果中被链回溯遗漏的孤儿 entry
+    """
+    if not entries:
+        return []
+
+    # 1. 构建 uuid → entry 映射
+    uuid_map: dict[str, dict[str, Any]] = {}
+    for entry in entries:
+        entry_uuid = entry.get("uuid")
+        if entry_uuid:
+            uuid_map[entry_uuid] = entry
+
+    if not uuid_map:
+        # 没有 uuid 的旧格式 — fallback 到顺序读取
+        return list(entries)
+
+    # 2. 找到叶节点：uuid 不被任何其他 entry 的 parentUuid 引用
+    child_uuids: set[str] = set()
+    for entry in entries:
+        parent = entry.get("parentUuid")
+        if parent and parent in uuid_map:
+            child_uuids.add(parent)
+
+    # 候选叶节点 = 不在任何 parentUuid 指向中的 entry
+    leaf_candidates = [
+        uuid for uuid in uuid_map
+        if uuid not in child_uuids
+    ]
+
+    if not leaf_candidates:
+        # 所有人都被引用了（可能是循环）— fallback 顺序读取
+        logger.debug("no leaf candidates found, falling back to sequential read")
+        return list(entries)
+
+    # 选择最新的叶节点（在 entries 中出现最晚的）
+    entry_order = {e.get("uuid"): i for i, e in enumerate(entries) if e.get("uuid")}
+    leaf_candidates.sort(key=lambda u: entry_order.get(u, 0), reverse=True)
+    leaf_uuid = leaf_candidates[0]
+
+    # 3. 从叶节点沿 parentUuid 回溯到根
+    chain: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    current_uuid: str | None = leaf_uuid
+
+    while current_uuid and current_uuid in uuid_map:
+        if current_uuid in seen:
+            # 循环检测
+            logger.debug("cycle detected at %s, breaking chain", current_uuid[:8])
+            break
+        seen.add(current_uuid)
+        entry = uuid_map[current_uuid]
+        chain.append(entry)
+        current_uuid = entry.get("parentUuid")
+
+    # 4. 反转得到时间正序
+    chain.reverse()
+
+    # 5. 恢复孤儿并行工具结果
+    chain = _recover_orphaned_entries(entries, chain, seen)
+
+    logger.debug("chain built: %d entries from %d total (leaf=%s)",
+                 len(chain), len(entries), leaf_uuid[:8])
+    return chain
+
+
+def _recover_orphaned_entries(
+    all_entries: list[dict[str, Any]],
+    chain: list[dict[str, Any]],
+    chain_uuids: set[str],
+) -> list[dict[str, Any]]:
+    """恢复被链回溯遗漏的孤儿 entry。
+
+    对应 TS recoverOrphanedParallelToolResults()。
+
+    场景：并行工具调用时，多个 tool_result entry 指向同一个 parentUuid
+    （即同一个 assistant tool_use 消息）。链回溯只会沿着一条路径走，
+    其他并行的 tool_result 会被遗漏。
+
+    算法：
+    1. 找到所有不在 chain 中的 transcript entry
+    2. 检查它们的 parentUuid 是否在 chain 中
+    3. 如果是，将其插入到 parentUuid 对应 entry 的后面
+    """
+    if not chain:
+        return chain
+
+    # 没有孤儿则快速返回
+    orphans = [e for e in all_entries if e.get("uuid") not in chain_uuids]
+    if not orphans:
+        return chain
+
+    # 建立 chain 中每个 uuid → 索引位置的映射
+    chain_index: dict[str, int] = {}
+    for i, entry in enumerate(chain):
+        uuid = entry.get("uuid")
+        if uuid:
+            chain_index[uuid] = i
+
+    # 找到有意义的孤儿：parentUuid 在 chain 中，且是工具结果类型的消息
+    # 只恢复并行工具结果，不恢复对话分支（分支节点应该通过链选择）
+    insertions: list[tuple[int, dict[str, Any]]] = []  # (insert_after_index, entry)
+    for orphan in orphans:
+        parent = orphan.get("parentUuid")
+        if parent and parent in chain_index:
+            # 只恢复 user 角色且内容是 tool_result 类型的 entry
+            # （并行工具调用产生的多个 tool_result 共享同一个 parentUuid）
+            msg = orphan.get("message", {})
+            content = msg.get("content")
+            is_tool_result = (
+                msg.get("role") == "user"
+                and isinstance(content, list)
+                and any(
+                    isinstance(block, dict) and block.get("type") == "tool_result"
+                    for block in content
+                )
+            )
+            if is_tool_result:
+                insertions.append((chain_index[parent], orphan))
+
+    if not insertions:
+        return chain
+
+    # 按 index 排序，从后往前插入避免索引偏移
+    insertions.sort(key=lambda x: x[0], reverse=True)
+
+    result = list(chain)
+    for idx, orphan in insertions:
+        result.insert(idx + 1, orphan)
+
+    logger.debug("recovered %d orphaned entries", len(insertions))
+    return result
 
 
 # ---------------------------------------------------------------------------
