@@ -6,8 +6,8 @@
 子代理在独立的上下文中运行，有自己的 system prompt 和工具集。
 主代理通过 Agent 工具委派任务给子代理，子代理返回结果。
 
-TS 版子代理可以调用完整工具循环（甚至嵌套 Agent），
-Python 简化版使用独立的 API 调用来实现子代理。
+子代理使用完整的 query_with_tools 循环，可以递归调用工具：
+LLM 调工具 → 拿结果 → 再调工具 → 循环，直到任务完成。
 """
 
 from __future__ import annotations
@@ -136,14 +136,14 @@ class AgentTool:
     ) -> str:
         """运行子代理。
 
-        使用独立的 API 调用来实现：
+        使用完整的 query_with_tools 循环：
         1. 构建子代理的 system prompt
-        2. 创建受限的工具集
-        3. 调用 API 并收集完整响应
+        2. 创建受限的工具集（排除 agent 自身防止无限嵌套）
+        3. 调用 query_with_tools 实现递归工具调用
         """
-        from cc_python.api import create_client
+        from cc_python.api import create_client, query_with_tools
         from cc_python.config import get_effective_model
-        from cc_python.tools import get_all_tools, find_tool_by_name
+        from cc_python.tools import get_all_tools
 
         # 构建工具集
         all_tools = get_all_tools()
@@ -177,32 +177,26 @@ class AgentTool:
         client, client_format = create_client()
         model = get_effective_model()
 
-        from cc_python.api import _call_anthropic_streaming, _call_openai_streaming
-        from cc_python.tools import tool_to_api_schema
-
-        tools_schema = [tool_to_api_schema(t) for t in agent_tools]
-
-        # 简化版：直接收集文本响应（不递归工具调用）
-        # TODO: 实现完整的子代理工具调用循环
-        text_parts = []
+        logger.debug("agent _run_agent: type=%s, tools=%d, prompt=%d chars",
+                     agent_type, len(agent_tools), len(prompt))
 
         try:
-            if client_format == "anthropic":
-                stream = _call_anthropic_streaming(
-                    client, model, system_prompt, messages, tools_schema,
-                    max_tokens=8192,
-                )
-            else:
-                stream = _call_openai_streaming(
-                    client, model, system_prompt, messages, tools_schema,
-                    max_tokens=8192,
-                )
-
-            async for event in stream:
-                if event["type"] == "text":
-                    text_parts.append(event["content"])
-
-            return "".join(text_parts) or "(agent returned no text)"
+            result = await query_with_tools(
+                client=client,
+                client_format=client_format,
+                model=model,
+                system_prompt=system_prompt,
+                messages=messages,
+                tools=agent_tools,
+                max_tokens=8192,
+                # 子代理不需要权限确认和 UI 回调
+                on_text=None,
+                on_tool_call=None,
+                permission_context=None,
+                on_permission_ask=None,
+            )
+            return result or "(agent returned no text)"
 
         except Exception as e:
+            logger.debug("agent error: %s", e)
             return f"Agent API error: {e}"

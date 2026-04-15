@@ -493,3 +493,50 @@ has_permission_to_use_tool(tool, input):
 5. 增强 `session.py` — AI 生成会话标题
 
 **第三批（10.3）** — 按需实现，不急于对齐。
+
+---
+
+## 阶段 11: P0 核心能力补齐
+
+> 对齐 TS 版关键差距，决定 Python 版是否可作为长期使用的 agent。
+
+### 11.1 子代理递归工具调用（进行中）
+
+| | Python 当前 | TS 版 |
+|---|---|---|
+| 子代理能力 | 单次 API 调用，忽略 tool_use | 完整的 query_with_tools 循环 |
+| 工具使用 | 不能 | 可以调工具 → 拿结果 → 再调 → 循环 |
+| 实际效果 | 退化成单轮问答 | 独立完成复杂任务 |
+
+**改动**：修改 `src/cc_python/tools/agent.py` 的 `_run_agent()`，复用 `api.py` 的 `query_with_tools()` 替代当前的单次 API 调用。
+
+### 11.2 会话恢复链回溯 🔲
+
+| | Python 当前 | TS 版 |
+|---|---|---|
+| 恢复方式 | 顺序读 JSONL | parentUuid 链回溯 |
+| 分叉/分支 | 不支持 | buildConversationChain + createFork |
+| 并行工具结果 | 不处理 | recoverOrphanedParallelToolResults |
+
+**改动**：增强 `session.py` 的 `load_session()`，用 parentUuid 构建链回溯，支持分叉会话。
+
+### 11.3 Undo 持久化与精细化 🔲
+
+| | Python 当前 | TS 版 |
+|---|---|---|
+| 方式 | 内存整文件快照 | 磁盘持久化 patch/diff |
+| 持久化 | 重启丢失 | 持久 |
+| 粒度 | 整个文件 | hunk 级别变更 |
+
+**改动**：将快照持久化到磁盘，支持重启后回退。精细到行级变更而非整文件。
+
+### 11.4 权限系统完善 🔲
+
+| | Python 当前 | TS 版 |
+|---|---|---|
+| 代码量 | ~400 行 | ~8000 行 / 24 文件 |
+| 规则解析 | 简单前缀匹配 | 完整 regex + 语法校验 |
+| Bash 分类 | 基础危险命令 | 13+ 模式精细分类 |
+| 路径安全 | 基础检查 | 完整路径验证链 |
+
+**改动**：增强 `permissions.py` 的规则解析、Bash 分类和路径安全检查。
