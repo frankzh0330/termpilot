@@ -62,11 +62,11 @@ def _datetime_now() -> str:
 # ---------------------------------------------------------------------------
 
 def make_transcript_entry(
-    role: str,
-    content: Any,
-    parent_uuid: str | None,
-    session_id: str,
-    cwd: str | None = None,
+        role: str,
+        content: Any,
+        parent_uuid: str | None,
+        session_id: str,
+        cwd: str | None = None,
 ) -> dict[str, Any]:
     """创建一条 transcript entry。
 
@@ -90,9 +90,9 @@ def make_transcript_entry(
 
 
 def make_metadata_entry(
-    entry_type: str,
-    value: Any,
-    session_id: str,
+        entry_type: str,
+        value: Any,
+        session_id: str,
 ) -> dict[str, Any]:
     """创建一条 metadata entry（如 summary, custom-title, tag 等）。
 
@@ -181,10 +181,10 @@ class SessionStorage:
         self._last_uuid = entry["uuid"]
 
     def record_tool_call(
-        self,
-        tool_name: str,
-        tool_input: dict,
-        tool_result: str,
+            self,
+            tool_name: str,
+            tool_input: dict,
+            tool_result: str,
     ) -> None:
         """记录工具调用（assistant tool_use + user tool_result 两条）。"""
         if not self._session_id:
@@ -290,9 +290,9 @@ def list_sessions(cwd: str | None = None) -> list[dict[str, Any]]:
 
     sessions = []
     for jsonl_file in sorted(
-        project_dir.glob("*.jsonl"),
-        key=lambda f: f.stat().st_mtime,
-        reverse=True,
+            project_dir.glob("*.jsonl"),
+            key=lambda f: f.stat().st_mtime,
+            reverse=True,
     ):
         entries = _parse_jsonl(jsonl_file)
         meta = _extract_metadata(entries)
@@ -419,9 +419,9 @@ def _build_conversation_chain(entries: list[dict[str, Any]]) -> list[dict[str, A
 
 
 def _recover_orphaned_entries(
-    all_entries: list[dict[str, Any]],
-    chain: list[dict[str, Any]],
-    chain_uuids: set[str],
+        all_entries: list[dict[str, Any]],
+        chain: list[dict[str, Any]],
+        chain_uuids: set[str],
 ) -> list[dict[str, Any]]:
     """恢复被链回溯遗漏的孤儿 entry。
 
@@ -462,12 +462,12 @@ def _recover_orphaned_entries(
             msg = orphan.get("message", {})
             content = msg.get("content")
             is_tool_result = (
-                msg.get("role") == "user"
-                and isinstance(content, list)
-                and any(
-                    isinstance(block, dict) and block.get("type") == "tool_result"
-                    for block in content
-                )
+                    msg.get("role") == "user"
+                    and isinstance(content, list)
+                    and any(
+                isinstance(block, dict) and block.get("type") == "tool_result"
+                for block in content
+            )
             )
             if is_tool_result:
                 insertions.append((chain_index[parent], orphan))
@@ -526,10 +526,10 @@ def _extract_conversation_text(messages: list[dict[str, Any]], max_chars: int = 
 
 
 async def generate_session_title(
-    messages: list[dict[str, Any]],
-    client: Any,
-    client_format: str,
-    model: str,
+        messages: list[dict[str, Any]],
+        client: Any,
+        client_format: str,
+        model: str,
 ) -> str:
     """从对话内容生成简短标题。
 

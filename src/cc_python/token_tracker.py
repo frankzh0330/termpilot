@@ -13,7 +13,7 @@ Anthropic API 返回的 usage 字段：
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -62,10 +62,10 @@ class TokenUsage:
     def total_tokens(self) -> int:
         """总 token 数（含缓存）。"""
         return (
-            self.input_tokens
-            + self.output_tokens
-            + self.cache_creation_input_tokens
-            + self.cache_read_input_tokens
+                self.input_tokens
+                + self.output_tokens
+                + self.cache_creation_input_tokens
+                + self.cache_read_input_tokens
         )
 
     def __add__(self, other: TokenUsage) -> TokenUsage:
@@ -114,10 +114,10 @@ class CostTracker:
 
         input_rate, output_rate, cache_write_rate, cache_read_rate = MODEL_PRICING[family]
         cost = (
-            usage.input_tokens / MILLION * input_rate
-            + usage.output_tokens / MILLION * output_rate
-            + usage.cache_creation_input_tokens / MILLION * cache_write_rate
-            + usage.cache_read_input_tokens / MILLION * cache_read_rate
+                usage.input_tokens / MILLION * input_rate
+                + usage.output_tokens / MILLION * output_rate
+                + usage.cache_creation_input_tokens / MILLION * cache_write_rate
+                + usage.cache_read_input_tokens / MILLION * cache_read_rate
         )
         return cost
 

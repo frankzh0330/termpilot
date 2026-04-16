@@ -18,11 +18,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # 常量
 # ---------------------------------------------------------------------------
-FETCH_TIMEOUT = 60.0          # HTTP 请求超时（秒）
+FETCH_TIMEOUT = 60.0  # HTTP 请求超时（秒）
 MAX_CONTENT_SIZE = 10 * 1024 * 1024  # 最大响应体 10MB
-MAX_OUTPUT_CHARS = 50_000     # 输出截断字符数
-CACHE_TTL = 900               # 缓存 15 分钟
-MAX_CACHE_ENTRIES = 50        # 最大缓存条目
+MAX_OUTPUT_CHARS = 50_000  # 输出截断字符数
+CACHE_TTL = 900  # 缓存 15 分钟
+MAX_CACHE_ENTRIES = 50  # 最大缓存条目
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
@@ -72,12 +72,12 @@ def _validate_url(url: str) -> str:
 def _is_restricted_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     """判断 IP 是否为私有/保留/回环地址。"""
     return (
-        ip.is_private
-        or ip.is_loopback
-        or ip.is_link_local
-        or ip.is_reserved
-        or ip.is_multicast
-        or ip.is_unspecified
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
     )
 
 
@@ -246,10 +246,10 @@ class WebFetchTool:
             import httpx
 
             async with httpx.AsyncClient(
-                timeout=FETCH_TIMEOUT,
-                follow_redirects=True,
-                max_redirects=5,
-                headers={"User-Agent": USER_AGENT},
+                    timeout=FETCH_TIMEOUT,
+                    follow_redirects=True,
+                    max_redirects=5,
+                    headers={"User-Agent": USER_AGENT},
             ) as client:
                 response = await client.get(url)
 

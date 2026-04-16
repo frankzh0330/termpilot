@@ -48,9 +48,9 @@ class HookEvent(str, Enum):
 class HookConfig:
     """单个 hook 命令配置。"""
 
-    type: str            # "command"
-    command: str         # Shell 命令
-    timeout: int = 30    # 超时秒数
+    type: str  # "command"
+    command: str  # Shell 命令
+    timeout: int = 30  # 超时秒数
     is_async: bool = False  # 是否异步执行（不阻塞主流程）
 
 
@@ -76,7 +76,7 @@ class HookResult:
     stdout: str
     stderr: str
     # 从 stdout JSON 解析
-    decision: str | None = None       # "allow" / "deny"
+    decision: str | None = None  # "allow" / "deny"
     reason: str | None = None
     updated_input: dict | None = None
 
@@ -163,8 +163,8 @@ def load_hooks_config() -> dict[HookEvent, list[HookMatcher]]:
 # ---------------------------------------------------------------------------
 
 def _get_matching_hooks(
-    event: HookEvent,
-    tool_name: str | None = None,
+        event: HookEvent,
+        tool_name: str | None = None,
 ) -> list[HookConfig]:
     """获取匹配的 hook 列表。
 
@@ -193,14 +193,14 @@ def _get_matching_hooks(
 # ---------------------------------------------------------------------------
 
 def _build_hook_input(
-    event: HookEvent,
-    session_id: str = "",
-    cwd: str = "",
-    tool_name: str | None = None,
-    tool_input: dict | None = None,
-    tool_use_id: str | None = None,
-    tool_response: str | None = None,
-    prompt: str | None = None,
+        event: HookEvent,
+        session_id: str = "",
+        cwd: str = "",
+        tool_name: str | None = None,
+        tool_input: dict | None = None,
+        tool_use_id: str | None = None,
+        tool_response: str | None = None,
+        prompt: str | None = None,
 ) -> dict[str, Any]:
     """构建传给 hook 的 stdin JSON。
 
@@ -261,9 +261,9 @@ def _build_result(exit_code: int, stdout: str, stderr: str) -> HookResult:
 
 
 async def _execute_command_hook(
-    command: str,
-    input_json: dict[str, Any],
-    timeout: int = 30,
+        command: str,
+        input_json: dict[str, Any],
+        timeout: int = 30,
 ) -> HookResult:
     """执行单个 command hook。
 
@@ -316,14 +316,14 @@ async def _execute_command_hook(
 # ---------------------------------------------------------------------------
 
 async def dispatch_hooks(
-    event: HookEvent,
-    session_id: str = "",
-    cwd: str = "",
-    tool_name: str | None = None,
-    tool_input: dict | None = None,
-    tool_use_id: str | None = None,
-    tool_response: str | None = None,
-    prompt: str | None = None,
+        event: HookEvent,
+        session_id: str = "",
+        cwd: str = "",
+        tool_name: str | None = None,
+        tool_input: dict | None = None,
+        tool_use_id: str | None = None,
+        tool_response: str | None = None,
+        prompt: str | None = None,
 ) -> list[HookResult]:
     """Hooks 分发主入口。
 

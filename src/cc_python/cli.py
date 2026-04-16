@@ -20,7 +20,7 @@ from rich.text import Text
 
 from cc_python.api import create_client, query_with_tools
 from cc_python.attachments import process_attachments
-from cc_python.commands import CommandResult, dispatch_command, parse_slash_command
+from cc_python.commands import dispatch_command, parse_slash_command
 from cc_python.config import get_effective_model
 from cc_python.context import build_system_prompt
 from cc_python.hooks import HookEvent, dispatch_hooks
@@ -43,9 +43,9 @@ logger = logging.getLogger(__name__)
 
 
 async def _permission_prompt(
-    tool_name: str,
-    tool_input: dict,
-    message: str,
+        tool_name: str,
+        tool_input: dict,
+        message: str,
 ) -> PermissionResult:
     """权限确认提示。对应 TS useCanUseTool.tsx 的用户交互部分。"""
     console.print()
@@ -234,7 +234,8 @@ async def _async_single_prompt(prompt: str, model: str) -> None:
     hook_feedback = [hr.stdout for hr in hook_results if hr.exit_code == 0 and hr.stdout.strip()]
     effective_prompt = prompt
     if hook_feedback:
-        effective_prompt += "\n\n<user-prompt-submit-hook>\n" + "\n".join(hook_feedback) + "\n</user-prompt-submit-hook>"
+        effective_prompt += "\n\n<user-prompt-submit-hook>\n" + "\n".join(
+            hook_feedback) + "\n</user-prompt-submit-hook>"
 
     messages = [create_user_message(effective_prompt)]
 
@@ -310,7 +311,7 @@ def _pick_session(sessions: list[dict]) -> str | None:
 
 async def _async_interactive(model: str, resume_session_id: str | None = None) -> None:
     """交互循环模式。"""
-    logger.debug("=== interactive mode: model=%s, resume=%s", model, resume_session_id)
+    logger.debug("=== interactive mode: model=%s, resume_session_id=%s", model, resume_session_id)
     storage = SessionStorage()
 
     if resume_session_id:
@@ -348,7 +349,8 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
     enabled_tools = {t.name for t in tools}
     logger.debug("tools: %d enabled (%s)", len(tools), ", ".join(sorted(enabled_tools)[:10]))
     permission_context = build_permission_context()
-    logger.debug("permission mode: %s, working_dir=%s", permission_context.mode.value, permission_context.working_directory)
+    logger.debug("permission mode: %s, working_dir=%s", permission_context.mode.value,
+                 permission_context.working_directory)
 
     system_prompt = build_system_prompt(
         model=model,
@@ -475,7 +477,8 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
             hook_feedback = [hr.stdout for hr in hook_results if hr.exit_code == 0 and hr.stdout.strip()]
             effective_input = user_input
             if hook_feedback:
-                effective_input += "\n\n<user-prompt-submit-hook>\n" + "\n".join(hook_feedback) + "\n</user-prompt-submit-hook>"
+                effective_input += "\n\n<user-prompt-submit-hook>\n" + "\n".join(
+                    hook_feedback) + "\n</user-prompt-submit-hook>"
 
             # 处理文件附件（@file 引用）
             attachment_blocks = process_attachments(effective_input)

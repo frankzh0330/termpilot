@@ -17,8 +17,8 @@ from typing import Any
 
 
 def create_user_message(
-    content: str | list[dict[str, Any]] | None = None,
-    tool_results: list[dict[str, Any]] | None = None,
+        content: str | list[dict[str, Any]] | None = None,
+        tool_results: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """创建 user 消息。
 
@@ -49,8 +49,8 @@ def create_assistant_message(content: str) -> dict[str, Any]:
 
 
 def create_tool_use_assistant_message(
-    text: str,
-    tool_use_blocks: list[dict[str, Any]],
+        text: str,
+        tool_use_blocks: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """创建包含 tool_use 的 assistant 消息。
 
@@ -75,7 +75,7 @@ def create_tool_use_assistant_message(
 
 
 def create_tool_result_message(
-    results: list[dict[str, Any]],
+        results: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """创建 tool_result 的 user 消息。
 

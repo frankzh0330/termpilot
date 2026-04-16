@@ -79,10 +79,10 @@ def init_undo(session_id: str | None = None) -> None:
 
 
 def save_snapshot(
-    file_path: str,
-    operation: str = "write_file",
-    old_string: str | None = None,
-    new_string: str | None = None,
+        file_path: str,
+        operation: str = "write_file",
+        old_string: str | None = None,
+        new_string: str | None = None,
 ) -> None:
     """修改前调用：读取当前文件内容并持久化快照。
 

@@ -35,9 +35,9 @@ def _extract_domain(url: str) -> str:
 
 
 def _apply_domain_filters(
-    results: list[dict[str, str]],
-    allowed_domains: list[str] | None,
-    blocked_domains: list[str] | None,
+        results: list[dict[str, str]],
+        allowed_domains: list[str] | None,
+        blocked_domains: list[str] | None,
 ) -> list[dict[str, str]]:
     """按白名单/黑名单过滤搜索结果。"""
     if not allowed_domains and not blocked_domains:

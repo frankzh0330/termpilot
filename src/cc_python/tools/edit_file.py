@@ -6,10 +6,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Any
 
-from cc_python.tools.base import Tool
+logger = logging.getLogger(__name__)
 
 
 class EditFileTool:
@@ -96,11 +97,18 @@ class EditFileTool:
             if replace_all:
                 new_content = content.replace(old_string, new_string)
                 path.write_text(new_content, encoding="utf-8")
-                return f"已编辑: {file_path} (替换了 {count} 处)"
             else:
                 new_content = content.replace(old_string, new_string, 1)
                 path.write_text(new_content, encoding="utf-8")
-                return f"已编辑: {file_path} (替换了 1 处)"
+            # 检测 memory 目录写入
+            try:
+                from cc_python.context import get_memory_dir
+                mem_dir = str(get_memory_dir())
+                if str(path).startswith(mem_dir):
+                    logger.info("memory edit: %s (replaced %d)", file_path, count if replace_all else 1)
+            except Exception:
+                pass
+            return f"已编辑: {file_path} (替换了 {count if replace_all else 1} 处)"
 
         try:
             return await asyncio.to_thread(_edit)

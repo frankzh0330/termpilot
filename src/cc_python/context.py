@@ -32,13 +32,13 @@ def get_git_status() -> str | None:
     """对应 TS getGitStatus()，收集 git 仓库状态。"""
     try:
         is_git = (
-            subprocess.run(
-                ["git", "rev-parse", "--is-inside-work-tree"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            ).stdout.strip()
-            == "true"
+                subprocess.run(
+                    ["git", "rev-parse", "--is-inside-work-tree"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                ).stdout.strip()
+                == "true"
         )
         if not is_git:
             return None
@@ -241,7 +241,7 @@ def _get_env_info_section(model: str = "") -> str:
     items.append(f"Today's date is {today}.")
 
     return "\n".join(["# Environment", "You have been invoked in the following environment: "] +
-                      [f" - {item}" for item in items])
+                     [f" - {item}" for item in items])
 
 
 def get_session_guidance_section(enabled_tools: set[str] | None = None) -> str | None:
@@ -349,6 +349,14 @@ def get_summarize_tool_results_section() -> str:
     return _SUMMARIZE_TOOL_RESULTS_SECTION
 
 
+def get_memory_dir() -> Path:
+    """获取当前项目的 memory 目录路径。"""
+    cwd = str(Path.cwd())
+    home = str(Path.home())
+    encoded_path = cwd.replace("/", "-").replace("\\", "-")
+    return Path(home) / ".claude" / "projects" / encoded_path / "memory"
+
+
 def load_memory_prompt() -> str | None:
     """对应 TS loadMemoryPrompt() + buildMemoryLines()。
 
@@ -362,11 +370,7 @@ def load_memory_prompt() -> str | None:
     7. MEMORY.md 内容（截断保护）
     """
     # 确定项目对应的 memory 目录
-    cwd = str(Path.cwd())
-    home = str(Path.home())
-    # 与 Claude Code TS 版的路径规则对齐：~/.claude/projects/<encoded_path>/memory/
-    encoded_path = cwd.replace("/", "-").replace("\\", "-")
-    memory_dir = Path(home) / ".claude" / "projects" / encoded_path / "memory"
+    memory_dir = get_memory_dir()
 
     # 确保目录存在（对应 TS ensureMemoryDirExists）
     try:
@@ -610,10 +614,12 @@ def load_memory_prompt() -> str | None:
     if memory_index.exists():
         memory_content = memory_index.read_text(encoding="utf-8")
         truncated = _truncate_memory_content(memory_content)
+        logger.debug("memory loaded: %s (%d chars)", memory_index, len(memory_content))
         lines.append("## MEMORY.md")
         lines.append("")
         lines.append(truncated)
     else:
+        logger.debug("memory index not found: %s", memory_index)
         lines.append("## MEMORY.md")
         lines.append("")
         lines.append("Your MEMORY.md is currently empty. When you save new memories, they will appear here.")
@@ -668,10 +674,10 @@ def _truncate_memory_content(raw: str) -> str:
 
 
 def build_system_prompt(
-    model: str = "",
-    enabled_tools: set[str] | None = None,
-    language: str | None = None,
-    mcp_manager: Any = None,
+        model: str = "",
+        enabled_tools: set[str] | None = None,
+        language: str | None = None,
+        mcp_manager: Any = None,
 ) -> str:
     """构建完整 system prompt。
 
@@ -746,7 +752,7 @@ def build_system_prompt(
     # 9. Memory
     memory = load_memory_prompt()
     if memory:
-        logger.debug("memory prompt injected: %d chars", len(memory))
+        logger.debug("memory prompt injected: %d chars, dir=%s", len(memory), get_memory_dir())
         parts.append("")
         parts.append(memory)
 

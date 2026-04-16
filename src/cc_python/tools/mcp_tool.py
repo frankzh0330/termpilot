@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 
@@ -20,12 +19,12 @@ class MCPToolAdapter:
     """
 
     def __init__(
-        self,
-        server_name: str,
-        tool_name: str,
-        description: str = "",
-        input_schema: dict[str, Any] | None = None,
-        manager: Any = None,
+            self,
+            server_name: str,
+            tool_name: str,
+            description: str = "",
+            input_schema: dict[str, Any] | None = None,
+            manager: Any = None,
     ) -> None:
         self._server_name = server_name
         self._tool_name = tool_name

@@ -8,8 +8,6 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from cc_python.tools.base import Tool
-
 
 class BashTool:
     """执行 shell 命令并返回输出。

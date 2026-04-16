@@ -31,11 +31,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 CONTEXT_WINDOW_DEFAULT = 200_000  # Claude Sonnet 默认上下文窗口
-COMPACT_THRESHOLD_RATIO = 0.75   # 75% 时触发压缩
-COMPACT_TARGET_RATIO = 0.50      # 压缩到 50%
+COMPACT_THRESHOLD_RATIO = 0.75  # 75% 时触发压缩
+COMPACT_TARGET_RATIO = 0.50  # 压缩到 50%
 
 MICROCOMPACT_MAX_TOOL_RESULTS = 10  # count-based: 可清理工具最多保留最近 N 个结果
-TOKEN_CHARS_RATIO = 3              # ~3 字符 = 1 token（混合中英文估算）
+TOKEN_CHARS_RATIO = 3  # ~3 字符 = 1 token（混合中英文估算）
 
 # 可安全清理工具结果的白名单（对应 TS COMPACTABLE_TOOLS）。
 # 只包含只读/幂等工具，它们的结果丢失后可以通过重新执行找回。
@@ -44,18 +44,18 @@ TOKEN_CHARS_RATIO = 3              # ~3 字符 = 1 token（混合中英文估算
 #     模型需要这些信息来理解做了什么修改
 #   - 清理结果可能丢失错误信息（如编辑冲突），导致模型重复犯错
 COMPACTABLE_TOOLS = frozenset({
-    "read_file",    # 文件内容可重新读取
-    "bash",         # 命令输出可重新执行
-    "grep",         # 搜索结果可重新搜索
-    "glob",         # 文件列表可重新匹配
+    "read_file",  # 文件内容可重新读取
+    "bash",  # 命令输出可重新执行
+    "grep",  # 搜索结果可重新搜索
+    "glob",  # 文件列表可重新匹配
 })
 
 # Time-based micro-compact 配置（对应 TS timeBasedMCConfig.ts）。
 # 当用户闲置超过阈值时间后，服务端 prompt cache 必然已过期，
 # 此时清理旧工具结果可以缩小重写量。这是比 count-based 更安全的策略：
 # 闲置很久的旧结果大概率不再相关。
-TIME_BASED_MC_GAP_MINUTES = 60   # 60 分钟，对齐 TS 默认值和 Anthropic 服务端 cache TTL
-TIME_BASED_MC_KEEP_RECENT = 5    # 保留最近 N 个可清理工具的结果
+TIME_BASED_MC_GAP_MINUTES = 60  # 60 分钟，对齐 TS 默认值和 Anthropic 服务端 cache TTL
+TIME_BASED_MC_KEEP_RECENT = 5  # 保留最近 N 个可清理工具的结果
 
 # Time-based 清理后的占位符（对应 TS TIME_BASED_MC_CLEARED_MESSAGE）
 TIME_BASED_MC_CLEARED_MESSAGE = "[Old tool result content cleared]"
@@ -120,8 +120,8 @@ def _count_content_tokens(content: str | list | dict) -> int:
 
 
 def estimate_tokens(
-    messages: list[dict],
-    system_prompt: str = "",
+        messages: list[dict],
+        system_prompt: str = "",
 ) -> int:
     """估算消息列表的总 token 数。
 
@@ -260,10 +260,10 @@ def _time_based_micro_compact(messages: list[dict], gap_minutes: float) -> list[
         new_blocks: list[dict] = []
         for block in content:
             if (
-                isinstance(block, dict)
-                and block.get("type") == "tool_result"
-                and block.get("tool_use_id") in clear_set
-                and block.get("content") != TIME_BASED_MC_CLEARED_MESSAGE
+                    isinstance(block, dict)
+                    and block.get("type") == "tool_result"
+                    and block.get("tool_use_id") in clear_set
+                    and block.get("content") != TIME_BASED_MC_CLEARED_MESSAGE
             ):
                 # 估算节省的 token 数（用于日志）
                 original = block.get("content", "")
@@ -430,8 +430,8 @@ def _messages_to_text(messages: list[dict]) -> str:
 
 
 def _find_split_index(
-    messages: list[dict],
-    keep_recent_tokens: int,
+        messages: list[dict],
+        keep_recent_tokens: int,
 ) -> int:
     """找到分割点：从末尾往前，保留 keep_recent_tokens 的消息。
 
@@ -456,11 +456,11 @@ def _extract_summary(text: str) -> str:
 
 
 async def full_compact(
-    messages: list[dict],
-    client: Any,
-    client_format: str,
-    model: str,
-    context_window: int = CONTEXT_WINDOW_DEFAULT,
+        messages: list[dict],
+        client: Any,
+        client_format: str,
+        model: str,
+        context_window: int = CONTEXT_WINDOW_DEFAULT,
 ) -> list[dict]:
     """完整压缩：用 LLM 为旧消息生成摘要。
 
@@ -493,9 +493,9 @@ async def full_compact(
     try:
         if client_format == "anthropic":
             async with client.messages.stream(
-                model=model,
-                max_tokens=4096,
-                messages=compact_messages,
+                    model=model,
+                    max_tokens=4096,
+                    messages=compact_messages,
             ) as stream:
                 summary_text = ""
                 async for event in stream:
@@ -543,13 +543,13 @@ async def full_compact(
 # ---------------------------------------------------------------------------
 
 async def auto_compact_if_needed(
-    messages: list[dict],
-    system_prompt: str,
-    client: Any,
-    client_format: str,
-    model: str,
-    context_window: int = CONTEXT_WINDOW_DEFAULT,
-    force: bool = False,
+        messages: list[dict],
+        system_prompt: str,
+        client: Any,
+        client_format: str,
+        model: str,
+        context_window: int = CONTEXT_WINDOW_DEFAULT,
+        force: bool = False,
 ) -> list[dict]:
     """自动压缩入口。
 

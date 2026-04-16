@@ -10,8 +10,6 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
-from cc_python.tools.base import Tool
-
 
 class ReadFileTool:
     """读取文件内容。

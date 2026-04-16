@@ -11,8 +11,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-from cc_python.tools.base import Tool
-
 
 def _should_search(path: Path) -> bool:
     """判断是否应该搜索此文件（跳过二进制/隐藏/常见忽略目录）。"""

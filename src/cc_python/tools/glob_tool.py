@@ -10,8 +10,6 @@ import glob as globmod
 from pathlib import Path
 from typing import Any
 
-from cc_python.tools.base import Tool
-
 
 class GlobTool:
     """用 glob 模式搜索文件路径。

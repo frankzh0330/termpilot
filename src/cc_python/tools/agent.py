@@ -129,10 +129,10 @@ class AgentTool:
             return f"Agent error: {e}"
 
     async def _run_agent(
-        self,
-        agent_type: str,
-        config: dict[str, Any],
-        prompt: str,
+            self,
+            agent_type: str,
+            config: dict[str, Any],
+            prompt: str,
     ) -> str:
         """运行子代理。
 

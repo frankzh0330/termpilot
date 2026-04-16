@@ -42,11 +42,9 @@ from cc_python.hooks import HookEvent, dispatch_hooks
 from cc_python.permissions import (
     PermissionBehavior,
     PermissionContext,
-    PermissionResult,
     check_permission,
 )
 from cc_python.tools.base import Tool
-
 
 # 对应 TS toolOrchestration.ts:8-12 getMaxToolUseConcurrency()
 MAX_CONCURRENT_TOOLS = int(
@@ -94,12 +92,12 @@ def create_client() -> tuple[Any, str]:
 
 
 async def _call_anthropic_streaming(
-    client: Any,
-    model: str,
-    system_prompt: str,
-    messages: list[dict[str, Any]],
-    tools: list[dict[str, Any]] | None = None,
-    max_tokens: int = 4096,
+        client: Any,
+        model: str,
+        system_prompt: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        max_tokens: int = 4096,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Anthropic 格式的流式 API 调用。
 
@@ -174,12 +172,12 @@ async def _call_anthropic_streaming(
 
 
 async def _call_openai_streaming(
-    client: Any,
-    model: str,
-    system_prompt: str,
-    messages: list[dict[str, Any]],
-    tools: list[dict[str, Any]] | None = None,
-    max_tokens: int = 4096,
+        client: Any,
+        model: str,
+        system_prompt: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        max_tokens: int = 4096,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """OpenAI 格式的流式 API 调用。"""
     api_messages = [{"role": "system", "content": system_prompt}] + messages
@@ -267,12 +265,12 @@ async def _call_openai_streaming(
 
 
 async def _execute_tools_concurrent(
-    tool_use_blocks: list[dict[str, Any]],
-    tools: list[Tool],
-    on_tool_call: Any = None,
-    permission_context: PermissionContext | None = None,
-    on_permission_ask: Any = None,
-    session_id: str = "",
+        tool_use_blocks: list[dict[str, Any]],
+        tools: list[Tool],
+        on_tool_call: Any = None,
+        permission_context: PermissionContext | None = None,
+        on_permission_ask: Any = None,
+        session_id: str = "",
 ) -> list[dict[str, Any]]:
     """并发执行工具调用。
 
@@ -340,7 +338,8 @@ async def _execute_tools_concurrent(
             # --- 权限检查 ---
             if permission_context:
                 perm_result = check_permission(tb["name"], tb["input"], permission_context)
-                logger.debug("permission check: %s → %s (%s)", tb["name"], perm_result.behavior.value, perm_result.message)
+                logger.debug("permission check: %s → %s (%s)", tb["name"], perm_result.behavior.value,
+                             perm_result.message)
 
                 if perm_result.behavior == PermissionBehavior.DENY:
                     result_text = f"权限拒绝: {perm_result.message}"
@@ -470,19 +469,19 @@ async def _execute_tools_concurrent(
 
 
 async def query_with_tools(
-    client: Any,
-    client_format: str,
-    model: str,
-    system_prompt: str,
-    messages: list[dict[str, Any]],
-    tools: list[Tool],
-    max_tokens: int = 4096,
-    on_text: Any = None,
-    on_tool_call: Any = None,
-    permission_context: PermissionContext | None = None,
-    on_permission_ask: Any = None,
-    session_id: str = "",
-    cost_tracker: Any | None = None,
+        client: Any,
+        client_format: str,
+        model: str,
+        system_prompt: str,
+        messages: list[dict[str, Any]],
+        tools: list[Tool],
+        max_tokens: int = 4096,
+        on_text: Any = None,
+        on_tool_call: Any = None,
+        permission_context: PermissionContext | None = None,
+        on_permission_ask: Any = None,
+        session_id: str = "",
+        cost_tracker: Any | None = None,
 ) -> str:
     """带工具调用的完整查询循环。
 

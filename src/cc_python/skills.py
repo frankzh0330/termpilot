@@ -91,7 +91,7 @@ def _parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
 
         # 去掉引号
         if (value.startswith('"') and value.endswith('"')) or \
-           (value.startswith("'") and value.endswith("'")):
+                (value.startswith("'") and value.endswith("'")):
             value = value[1:-1]
 
         # 解析简单类型
@@ -150,10 +150,10 @@ def register_skill(skill: SkillDefinition) -> None:
 
 
 def register_bundled_skill(
-    name: str,
-    description: str,
-    prompt_template: str,
-    **kwargs: Any,
+        name: str,
+        description: str,
+        prompt_template: str,
+        **kwargs: Any,
 ) -> None:
     """注册内置 skill。
 

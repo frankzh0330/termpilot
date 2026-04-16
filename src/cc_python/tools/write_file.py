@@ -6,10 +6,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Any
 
-from cc_python.tools.base import Tool
+logger = logging.getLogger(__name__)
 
 
 class WriteFileTool:
@@ -71,6 +72,14 @@ class WriteFileTool:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
             line_count = content.count("\n") + (1 if content and not content.endswith("\n") else 0)
+            # 检测 memory 目录写入
+            try:
+                from cc_python.context import get_memory_dir
+                mem_dir = str(get_memory_dir())
+                if str(path).startswith(mem_dir):
+                    logger.info("memory write: %s (%d chars)", file_path, len(content))
+            except Exception:
+                pass
             return f"已写入: {file_path} ({line_count} 行, {len(content)} 字符)"
 
         try:

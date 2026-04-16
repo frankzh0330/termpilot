@@ -101,12 +101,12 @@ def get_effective_api_key() -> str | None:
     """
     env = get_settings_env()
     key = (
-        os.environ.get("ANTHROPIC_API_KEY")
-        or env.get("ANTHROPIC_API_KEY")
-        or os.environ.get("ANTHROPIC_AUTH_TOKEN")
-        or env.get("ANTHROPIC_AUTH_TOKEN")
-        or os.environ.get("ZHIPU_API_KEY")
-        or env.get("ZHIPU_API_KEY")
+            os.environ.get("ANTHROPIC_API_KEY")
+            or env.get("ANTHROPIC_API_KEY")
+            or os.environ.get("ANTHROPIC_AUTH_TOKEN")
+            or env.get("ANTHROPIC_AUTH_TOKEN")
+            or os.environ.get("ZHIPU_API_KEY")
+            or env.get("ZHIPU_API_KEY")
     )
     if key:
         source = (
@@ -134,8 +134,8 @@ def get_effective_base_url() -> str | None:
     2. settings.json 中的 env.ANTHROPIC_BASE_URL
     """
     return (
-        os.environ.get("ANTHROPIC_BASE_URL")
-        or get_settings_env().get("ANTHROPIC_BASE_URL")
+            os.environ.get("ANTHROPIC_BASE_URL")
+            or get_settings_env().get("ANTHROPIC_BASE_URL")
     )
 
 
@@ -150,10 +150,10 @@ def get_effective_model(default: str = "claude-sonnet-4-20250514") -> str:
     """
     settings = get_settings()
     model = (
-        os.environ.get("ANTHROPIC_MODEL")
-        or get_settings_env().get("ANTHROPIC_MODEL")
-        or settings.get("model")
-        or default
+            os.environ.get("ANTHROPIC_MODEL")
+            or get_settings_env().get("ANTHROPIC_MODEL")
+            or settings.get("model")
+            or default
     )
     logger.debug("effective model: %s (default=%s)", model, default)
     return model
