@@ -2,7 +2,7 @@
 
 import pytest
 
-from cc_python.tools.edit_file import EditFileTool
+from termpilot.tools.edit_file import EditFileTool
 
 
 @pytest.fixture

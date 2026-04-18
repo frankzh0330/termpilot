@@ -29,6 +29,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
+from termpilot.config import get_settings_path, get_settings_write_path
+
 logger = logging.getLogger(__name__)
 
 
@@ -693,8 +695,7 @@ _RULE_SOURCE_PRIORITY = {
 
 def _get_settings_path() -> Path:
     """获取 settings.json 路径。"""
-    config_home = Path(os.environ.get("CLAUDE_CONFIG_DIR", str(Path.home() / ".claude")))
-    return config_home / "settings.json"
+    return get_settings_path()
 
 
 def _read_settings() -> dict:
@@ -710,7 +711,7 @@ def _read_settings() -> dict:
 
 def _write_settings(settings: dict) -> None:
     """写入 settings.json。"""
-    path = _get_settings_path()
+    path = get_settings_write_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 

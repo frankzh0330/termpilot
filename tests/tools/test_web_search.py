@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from cc_python.tools.web_search import (
+from termpilot.tools.web_search import (
     WebSearchTool,
     _extract_domain,
     _apply_domain_filters,

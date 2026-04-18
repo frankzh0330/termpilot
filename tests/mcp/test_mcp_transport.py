@@ -5,7 +5,7 @@ from unittest.mock import patch, MagicMock, AsyncMock
 
 import pytest
 
-from cc_python.mcp.transport import StdioTransport, SSETransport
+from termpilot.mcp.transport import StdioTransport, SSETransport
 
 
 class TestStdioTransport:

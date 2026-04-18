@@ -2,7 +2,7 @@
 
 import pytest
 
-from cc_python.claudemd import (
+from termpilot.claudemd import (
     MemoryFileInfo, _parent_chain, find_claude_md_files, load_claude_md,
 )
 
@@ -21,12 +21,12 @@ class TestParentChain:
 
 class TestFindClaudeMdFiles:
     def test_empty(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("cc_python.claudemd.Path.home", lambda: tmp_path / "fake_home")
+        monkeypatch.setattr("termpilot.claudemd.Path.home", lambda: tmp_path / "fake_home")
         files = find_claude_md_files(str(tmp_path / "project"))
         assert files == []
 
     def test_project_claude_md(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("cc_python.claudemd.Path.home", lambda: tmp_path / "fake_home")
+        monkeypatch.setattr("termpilot.claudemd.Path.home", lambda: tmp_path / "fake_home")
 
         project = tmp_path / "project"
         project.mkdir()
@@ -45,7 +45,7 @@ class TestFindClaudeMdFiles:
         claude_dir.mkdir()
         (claude_dir / "CLAUDE.md").write_text("global instructions", encoding="utf-8")
 
-        monkeypatch.setattr("cc_python.claudemd.Path.home", lambda: fake_home)
+        monkeypatch.setattr("termpilot.claudemd.Path.home", lambda: fake_home)
 
         files = find_claude_md_files(str(tmp_path / "project"))
         global_files = [f for f in files if f.content == "global instructions"]
@@ -53,7 +53,7 @@ class TestFindClaudeMdFiles:
         assert global_files[0].file_type == "user"
 
     def test_rules_dir(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("cc_python.claudemd.Path.home", lambda: tmp_path / "fake_home")
+        monkeypatch.setattr("termpilot.claudemd.Path.home", lambda: tmp_path / "fake_home")
 
         project = tmp_path / "project"
         rules_dir = project / ".claude" / "rules"
@@ -65,7 +65,7 @@ class TestFindClaudeMdFiles:
         assert len(rule_files) == 1
 
     def test_local_md(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("cc_python.claudemd.Path.home", lambda: tmp_path / "fake_home")
+        monkeypatch.setattr("termpilot.claudemd.Path.home", lambda: tmp_path / "fake_home")
 
         project = tmp_path / "project"
         project.mkdir()
@@ -79,11 +79,11 @@ class TestFindClaudeMdFiles:
 
 class TestLoadClaudeMd:
     def test_no_files(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("cc_python.claudemd.Path.home", lambda: tmp_path / "fake_home")
+        monkeypatch.setattr("termpilot.claudemd.Path.home", lambda: tmp_path / "fake_home")
         assert load_claude_md(str(tmp_path / "empty")) is None
 
     def test_formats_xml(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("cc_python.claudemd.Path.home", lambda: tmp_path / "fake_home")
+        monkeypatch.setattr("termpilot.claudemd.Path.home", lambda: tmp_path / "fake_home")
 
         project = tmp_path / "project"
         project.mkdir()
@@ -96,7 +96,7 @@ class TestLoadClaudeMd:
         assert "do this" in result
 
     def test_multiple_files(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("cc_python.claudemd.Path.home", lambda: tmp_path / "fake_home")
+        monkeypatch.setattr("termpilot.claudemd.Path.home", lambda: tmp_path / "fake_home")
 
         project = tmp_path / "project"
         project.mkdir()

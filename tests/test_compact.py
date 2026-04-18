@@ -2,7 +2,7 @@
 
 import pytest
 
-from cc_python.compact import (
+from termpilot.compact import (
     estimate_tokens, micro_compact,
     _find_split_index, _extract_summary, _messages_to_text,
     CONTEXT_WINDOW_DEFAULT, COMPACT_THRESHOLD_RATIO, TOKEN_CHARS_RATIO,
@@ -129,7 +129,7 @@ class TestAutoCompactIfNeeded:
     @pytest.mark.asyncio
     async def test_below_threshold(self):
         """未超阈值不压缩。"""
-        from cc_python.compact import auto_compact_if_needed
+        from termpilot.compact import auto_compact_if_needed
         messages = [{"role": "user", "content": "short"}]
         result = await auto_compact_if_needed(
             messages, "", None, "anthropic", "model",
@@ -140,7 +140,7 @@ class TestAutoCompactIfNeeded:
     @pytest.mark.asyncio
     async def test_force(self):
         """force=True 但消息很少时触发 micro_compact（可能无变化）。"""
-        from cc_python.compact import auto_compact_if_needed
+        from termpilot.compact import auto_compact_if_needed
         messages = [{"role": "user", "content": "short"}]
         result = await auto_compact_if_needed(
             messages, "", None, "anthropic", "model",

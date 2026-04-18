@@ -2,7 +2,7 @@
 
 import pytest
 
-from cc_python.tools.read_file import ReadFileTool
+from termpilot.tools.read_file import ReadFileTool
 
 
 @pytest.fixture

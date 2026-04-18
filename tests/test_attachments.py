@@ -4,7 +4,7 @@ import base64
 
 import pytest
 
-from cc_python.attachments import (
+from termpilot.attachments import (
     is_text_file, is_image_file, read_file_as_attachment,
     extract_file_paths, process_attachments,
     TEXT_EXTENSIONS, IMAGE_EXTENSIONS,

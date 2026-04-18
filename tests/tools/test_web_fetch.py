@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from cc_python.tools.web_fetch import (
+from termpilot.tools.web_fetch import (
     WebFetchTool,
     _validate_url,
     _WebFetchCache,
@@ -99,7 +99,7 @@ class TestWebFetchCall:
 
         import httpx as _httpx
         with patch.object(_httpx, "AsyncClient", return_value=mock_client):
-            with patch("cc_python.tools.web_fetch._validate_url", return_value="https://example.com"):
+            with patch("termpilot.tools.web_fetch._validate_url", return_value="https://example.com"):
                 result = await tool.call(url="https://example.com")
 
         assert "Hello" in result
@@ -120,7 +120,7 @@ class TestWebFetchCall:
 
         import httpx as _httpx
         with patch.object(_httpx, "AsyncClient", return_value=mock_client):
-            with patch("cc_python.tools.web_fetch._validate_url", return_value="https://api.example.com/data"):
+            with patch("termpilot.tools.web_fetch._validate_url", return_value="https://api.example.com/data"):
                 result = await tool.call(url="https://api.example.com/data")
 
         assert '{"key": "value"}' in result
@@ -139,7 +139,7 @@ class TestWebFetchCall:
 
         import httpx as _httpx
         with patch.object(_httpx, "AsyncClient", return_value=mock_client):
-            with patch("cc_python.tools.web_fetch._validate_url", return_value="https://example.com/missing"):
+            with patch("termpilot.tools.web_fetch._validate_url", return_value="https://example.com/missing"):
                 result = await tool.call(url="https://example.com/missing")
 
         assert "Error" in result

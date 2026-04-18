@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""cc_python 仓库质量检查脚本。
+"""termpilot 仓库质量检查脚本。
 
 验证项目的不变量：
 1. 必要文件存在
@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-SRC_DIR = PROJECT_ROOT / "src" / "cc_python"
+SRC_DIR = PROJECT_ROOT / "src" / "termpilot"
 
 # ANSI colors
 GREEN = "\033[92m"
@@ -59,24 +59,23 @@ def check_required_files() -> None:
         "CLAUDE.md",
         "ARCHITECTURE.md",
         "README.md",
-        "plan.md",
         "pyproject.toml",
         "docs/golden-rules.md",
         "docs/conventions.md",
         "docs/hooks.md",
         "docs/system_prompt_sections.md",
-        "src/cc_python/__init__.py",
-        "src/cc_python/__main__.py",
-        "src/cc_python/cli.py",
-        "src/cc_python/api.py",
-        "src/cc_python/config.py",
-        "src/cc_python/context.py",
-        "src/cc_python/hooks.py",
-        "src/cc_python/permissions.py",
-        "src/cc_python/messages.py",
-        "src/cc_python/session.py",
-        "src/cc_python/tools/__init__.py",
-        "src/cc_python/tools/base.py",
+        "src/termpilot/__init__.py",
+        "src/termpilot/__main__.py",
+        "src/termpilot/cli.py",
+        "src/termpilot/api.py",
+        "src/termpilot/config.py",
+        "src/termpilot/context.py",
+        "src/termpilot/hooks.py",
+        "src/termpilot/permissions.py",
+        "src/termpilot/messages.py",
+        "src/termpilot/session.py",
+        "src/termpilot/tools/__init__.py",
+        "src/termpilot/tools/base.py",
     ]
     for f in required:
         path = PROJECT_ROOT / f
@@ -200,7 +199,7 @@ def check_doc_links() -> None:
 
 def main() -> None:
     print("=" * 50)
-    print("  cc_python 仓库质量检查")
+    print("  termpilot 仓库质量检查")
     print("=" * 50)
 
     check_required_files()

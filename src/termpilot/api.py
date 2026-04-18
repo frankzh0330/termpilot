@@ -30,21 +30,23 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-from cc_python.compact import auto_compact_if_needed
-from cc_python.tool_result_storage import process_tool_result
-from cc_python.config import (
+from termpilot.compact import auto_compact_if_needed
+from termpilot.tool_result_storage import process_tool_result
+from termpilot.config import (
     apply_settings_env,
     get_context_window,
     get_effective_api_key,
     get_effective_base_url,
+    get_effective_provider,
+    get_settings_write_path,
 )
-from cc_python.hooks import HookEvent, dispatch_hooks
-from cc_python.permissions import (
+from termpilot.hooks import HookEvent, dispatch_hooks
+from termpilot.permissions import (
     PermissionBehavior,
     PermissionContext,
     check_permission,
 )
-from cc_python.tools.base import Tool
+from termpilot.tools.base import Tool
 
 # 对应 TS toolOrchestration.ts:8-12 getMaxToolUseConcurrency()
 MAX_CONCURRENT_TOOLS = int(
@@ -52,43 +54,59 @@ MAX_CONCURRENT_TOOLS = int(
 )
 
 
-def _is_anthropic_format(base_url: str | None) -> bool:
-    """判断是否使用 Anthropic API 格式。"""
-    if not base_url:
-        return True
-    result = "/anthropic" in base_url
-    logger.debug("API format detection: base_url=%s → %s", base_url, "anthropic" if result else "openai")
-    return result
-
-
 def create_client() -> tuple[Any, str]:
     """创建 API 客户端。对应 TS getAnthropicClient()。"""
     apply_settings_env()
 
-    api_key = get_effective_api_key()
+    provider = get_effective_provider()
+    api_key = get_effective_api_key(provider)
     if not api_key:
-        raise ValueError(
-            "未找到 API Key。请通过以下任一方式设置：\n"
-            "  1. 环境变量: export ANTHROPIC_API_KEY=xxx\n"
-            "  2. settings.json: {\"env\": {\"ANTHROPIC_API_KEY\": \"xxx\"}}"
+        settings_path = get_settings_write_path()
+        raise SystemExit(
+            "未配置 API Key。\n\n"
+            "请先创建配置文件：\n"
+            f"  {settings_path}\n\n"
+            "OpenAI 示例：\n"
+            "{\n"
+            '  "provider": "openai",\n'
+            '  "env": {\n'
+            '    "OPENAI_API_KEY": "your-api-key",\n'
+            '    "OPENAI_MODEL": "gpt-4o"\n'
+            "  }\n"
+            "}\n\n"
+            "Anthropic 示例：\n"
+            "{\n"
+            '  "provider": "anthropic",\n'
+            '  "env": {\n'
+            '    "ANTHROPIC_API_KEY": "your-api-key"\n'
+            "  }\n"
+            "}\n\n"
+            "也可以直接使用环境变量：\n"
+            "  OPENAI_API_KEY / ANTHROPIC_API_KEY / TERMPILOT_API_KEY"
         )
 
-    base_url = get_effective_base_url()
+    base_url = get_effective_base_url(provider)
 
-    if _is_anthropic_format(base_url):
-        import anthropic
+    if provider == "anthropic":
+        try:
+            import anthropic
+        except ImportError:
+            raise SystemExit(
+                "Anthropic SDK not installed. "
+                "Run: pip install \"termpilot[anthropic]\""
+            )
         client = anthropic.AsyncAnthropic(
             api_key=api_key,
             base_url=base_url,
         )
         return client, "anthropic"
-    else:
-        from openai import AsyncOpenAI
-        client = AsyncOpenAI(
-            api_key=api_key,
-            base_url=base_url,
-        )
-        return client, "openai"
+
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI(
+        api_key=api_key,
+        base_url=base_url,
+    )
+    return client, "openai"
 
 
 async def _call_anthropic_streaming(
@@ -286,7 +304,7 @@ async def _execute_tools_concurrent(
         permission_context: 权限上下文，None 则跳过权限检查
         on_permission_ask: 异步回调 async (tool_name, input, message) -> PermissionResult
     """
-    from cc_python.tools import find_tool_by_name
+    from termpilot.tools import find_tool_by_name
 
     tool_results: list[dict[str, Any]] = []
     logger.debug("_execute_tools_concurrent: %d tool calls to process", len(tool_use_blocks))
@@ -359,7 +377,7 @@ async def _execute_tools_concurrent(
                         )
                         # 持久化用户选择的规则
                         if user_result.rule_updates:
-                            from cc_python.permissions import PermissionRule, save_permission_rule
+                            from termpilot.permissions import PermissionRule, save_permission_rule
                             for update in user_result.rule_updates:
                                 save_permission_rule(PermissionRule(
                                     tool_name=update["tool_name"],
@@ -499,7 +517,7 @@ async def query_with_tools(
         permission_context: 权限上下文
         on_permission_ask: 权限确认回调
     """
-    from cc_python.tools import tool_to_api_schema
+    from termpilot.tools import tool_to_api_schema
 
     tools_schema = [tool_to_api_schema(t) for t in tools]
     logger.debug("query_with_tools: model=%s, format=%s, tools=%d, messages=%d",
@@ -548,7 +566,7 @@ async def query_with_tools(
 
         # 记录 token 用量
         if iteration_usage and cost_tracker:
-            from cc_python.token_tracker import TokenUsage
+            from termpilot.token_tracker import TokenUsage
             usage = TokenUsage(**iteration_usage)
             cost_tracker.add_usage(model, usage)
             logger.debug("usage: in=%d, out=%d, cache_write=%d, cache_read=%d",

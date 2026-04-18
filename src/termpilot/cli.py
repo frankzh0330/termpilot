@@ -18,23 +18,23 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from cc_python.api import create_client, query_with_tools
-from cc_python.attachments import process_attachments
-from cc_python.commands import dispatch_command, parse_slash_command
-from cc_python.config import get_effective_model
-from cc_python.context import build_system_prompt
-from cc_python.hooks import HookEvent, dispatch_hooks
-from cc_python.mcp import MCPManager
-from cc_python.messages import create_assistant_message, create_user_message
-from cc_python.permissions import (
+from termpilot.api import create_client, query_with_tools
+from termpilot.attachments import process_attachments
+from termpilot.commands import dispatch_command, parse_slash_command
+from termpilot.config import get_config_home, get_effective_model
+from termpilot.context import build_system_prompt
+from termpilot.hooks import HookEvent, dispatch_hooks
+from termpilot.mcp import MCPManager
+from termpilot.messages import create_assistant_message, create_user_message
+from termpilot.permissions import (
     PermissionBehavior,
     PermissionContext,
     PermissionResult,
     build_permission_context,
 )
-from cc_python.session import SessionStorage, list_sessions, load_session
-from cc_python.skills import discover_and_load_skills
-from cc_python.tools import get_all_tools
+from termpilot.session import SessionStorage, list_sessions, load_session
+from termpilot.skills import discover_and_load_skills
+from termpilot.tools import get_all_tools
 
 DEFAULT_MODEL = "claude-sonnet-4-20250514"
 
@@ -169,7 +169,7 @@ async def _stream_response_with_tools(
 
     # 显示本轮费用
     if cost_tracker:
-        from cc_python.token_tracker import CostTracker
+        from termpilot.token_tracker import CostTracker
         total = cost_tracker.total_usage
         if total.total_tokens > 0:
             console.print()
@@ -187,7 +187,7 @@ async def _async_single_prompt(prompt: str, model: str) -> None:
     logger.debug("session started: %s", storage.session_id)
 
     # 初始化 Undo 系统
-    from cc_python.undo import init_undo, cleanup_stale_snapshots
+    from termpilot.undo import init_undo, cleanup_stale_snapshots
     init_undo(storage.session_id)
     cleanup_stale_snapshots()
 
@@ -242,7 +242,7 @@ async def _async_single_prompt(prompt: str, model: str) -> None:
     storage.record_user_message(prompt)
     logger.debug("sending single prompt to API (%d chars)", len(effective_prompt))
 
-    from cc_python.token_tracker import CostTracker
+    from termpilot.token_tracker import CostTracker
     cost_tracker = CostTracker()
 
     response = await _stream_response_with_tools(
@@ -257,7 +257,7 @@ async def _async_single_prompt(prompt: str, model: str) -> None:
 
     # 生成会话标题
     messages.append(create_assistant_message(response))
-    from cc_python.session import generate_session_title
+    from termpilot.session import generate_session_title
     title = await generate_session_title(messages, client, client_format, model)
     if title:
         storage.save_metadata("custom-title", title)
@@ -326,7 +326,7 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
         logger.debug("new session: %s", storage.session_id)
 
     # 初始化 Undo 系统
-    from cc_python.undo import init_undo, cleanup_stale_snapshots
+    from termpilot.undo import init_undo, cleanup_stale_snapshots
     init_undo(storage.session_id)
     cleanup_stale_snapshots()
 
@@ -367,14 +367,14 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
         if mcp_tools:
             mcp_info = f"\nMCP: {len(mcp_tools)} 工具 ({', '.join(t['full_name'] for t in mcp_tools[:3])}{'...' if len(mcp_tools) > 3 else ''})"
 
-    from cc_python.token_tracker import CostTracker
+    from termpilot.token_tracker import CostTracker
     cost_tracker = CostTracker()
     title_generated = False  # 首轮对话后生成标题
 
     console.print(
         Panel(
             Text.from_markup(
-                f"[bold]Claude Code (Python)[/] — model: {model}\n"
+                f"[bold]TermPilot[/] — model: {model}\n"
                 f"工具: {', '.join(t.name for t in tools[:6])}{'...' if len(tools) > 6 else ''}\n"
                 f"权限模式: {permission_context.mode.value}\n"
                 f"会话: {storage.session_id[:8] if storage.session_id else 'N/A'}...{mcp_info}\n"
@@ -505,7 +505,7 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
 
             # 首轮对话后生成会话标题
             if not title_generated and len(messages) >= 2:
-                from cc_python.session import generate_session_title
+                from termpilot.session import generate_session_title
                 title = await generate_session_title(messages, client, client_format, model)
                 if title:
                     storage.save_metadata("custom-title", title)
@@ -539,7 +539,7 @@ def _setup_logging() -> None:
 
     对齐 TS 版设计：
     - 日志写文件，不写 stderr（不干扰 Rich UI）
-    - 按 session 分文件：~/.claude/debug/<sessionId>.txt
+    - 按 session 分文件：~/.termpilot/debug/<sessionId>.txt
     - latest 软链接指向当前会话，方便 tail -f
     - 环境变量 CC_PYTHON_LOG_LEVEL 控制级别
     """
@@ -549,7 +549,7 @@ def _setup_logging() -> None:
     log_level_str = os.environ.get("CC_PYTHON_LOG_LEVEL", "DEBUG").upper()
     log_level = getattr(logging, log_level_str, logging.DEBUG)
 
-    log_dir = Path.home() / ".claude" / "debug"
+    log_dir = get_config_home() / "debug"
     log_dir.mkdir(parents=True, exist_ok=True)
 
     session_id = str(uuid.uuid4())[:8]
@@ -561,7 +561,7 @@ def _setup_logging() -> None:
         datefmt="%H:%M:%S",
     ))
 
-    root_logger = logging.getLogger("cc_python")
+    root_logger = logging.getLogger("termpilot")
     root_logger.addHandler(handler)
     root_logger.setLevel(log_level)
 
@@ -578,7 +578,7 @@ def _setup_logging() -> None:
     for noisy in ("httpx", "httpcore", "openai", "anthropic", "asyncio"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
-    root_logger.info("=== cc_python 启动 (session: %s) ===", session_id)
+    root_logger.info("=== termpilot 启动 (session: %s) ===", session_id)
 
 
 @click.command()
@@ -604,7 +604,7 @@ def _setup_logging() -> None:
     help="指定要恢复的会话 ID",
 )
 def main(prompt: str | None, model: str | None, resume: bool, session_id: str | None) -> None:
-    """Claude Code Python 版 — AI 编程助手。"""
+    """TermPilot — AI 编程助手。"""
     _setup_logging()
 
     resolved_model = model or get_effective_model(DEFAULT_MODEL)

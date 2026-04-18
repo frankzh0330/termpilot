@@ -2,7 +2,7 @@
 
 import pytest
 
-from cc_python.tools.bash import BashTool
+from termpilot.tools.bash import BashTool
 
 
 @pytest.fixture

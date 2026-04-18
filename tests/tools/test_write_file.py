@@ -2,7 +2,7 @@
 
 import pytest
 
-from cc_python.tools.write_file import WriteFileTool
+from termpilot.tools.write_file import WriteFileTool
 
 
 @pytest.fixture

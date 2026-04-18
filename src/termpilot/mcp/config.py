@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 from typing import Any, TypedDict
 
-from cc_python.config import get_settings
+from termpilot.config import get_settings
 
 logger = logging.getLogger(__name__)
 

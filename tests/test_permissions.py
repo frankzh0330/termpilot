@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from cc_python.permissions import (
+from termpilot.permissions import (
     PermissionBehavior, PermissionMode, PermissionContext, PermissionResult,
     PermissionRule, check_permission, classify_bash_command,
     _match_rule, _find_matching_rule,

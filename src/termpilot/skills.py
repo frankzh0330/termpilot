@@ -26,6 +26,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from termpilot.config import get_config_home
+
 logger = logging.getLogger(__name__)
 
 # 全局 skill 注册表
@@ -183,7 +185,7 @@ def discover_and_load_skills(cwd: str | Path | None = None) -> None:
     """从所有位置搜索并加载 skill。
 
     搜索路径（按优先级从低到高）：
-    1. ~/.claude/skills/*.md（用户全局）
+    1. ~/.termpilot/skills/*.md（用户全局）
     2. .claude/skills/*.md（项目级）
 
     后加载的覆盖先加载的（同名 skill 以项目级为准）。
@@ -193,7 +195,7 @@ def discover_and_load_skills(cwd: str | Path | None = None) -> None:
     cwd_path = Path(cwd) if cwd else Path.cwd()
 
     # 用户全局 skills
-    user_skills_dir = Path.home() / ".claude" / "skills"
+    user_skills_dir = get_config_home() / "skills"
     for skill in load_skills_from_dir(user_skills_dir):
         register_skill(skill)
 

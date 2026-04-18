@@ -2,8 +2,8 @@
 
 import pytest
 
-from cc_python.tools.skill_tool import SkillTool
-from cc_python.skills import SkillDefinition, register_skill, _skills
+from termpilot.tools.skill_tool import SkillTool
+from termpilot.skills import SkillDefinition, register_skill, _skills
 
 
 @pytest.fixture(autouse=True)

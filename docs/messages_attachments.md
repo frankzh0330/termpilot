@@ -1,139 +1,61 @@
-# Message + Attachments 增强
+# Messages, Attachments, and Large Tool Results
 
-本文档描述消息规范化、工具结果存储和附件处理系统。
+[English](messages_attachments.md) | [简体中文](messages_attachments.zh-CN.md)
 
----
+This document describes the current message helper, attachment, and oversized-tool-result behavior.
 
-## 涉及文件
+## Relevant Modules
 
-```
-messages.py             ← 消息创建与规范化（增强）
-tool_result_storage.py  ← 大型工具结果磁盘存储（新建）
-attachments.py          ← 文件附件处理（新建）
-api.py                  ← 集成工具结果处理
-cli.py                  ← 集成附件处理
-```
-
----
-
-## messages.py 增强
-
-对应 TS: `utils/messages.ts`（5512 行），Python 简化版 ~150 行。
-
-### 新增函数
-
-| 函数 | 说明 |
-|------|------|
-| `create_user_message(content, tool_results)` | 支持字符串、content blocks、tool_result |
-| `create_assistant_message(content)` | 创建 assistant 文本消息 |
-| `create_tool_use_assistant_message(text, blocks)` | 创建含 tool_use 的 assistant 消息 |
-| `create_tool_result_message(results)` | 创建 tool_result 的 user 消息 |
-| `normalize_messages_for_api(messages)` | 规范化：合并同角色消息、过滤空消息 |
-| `messages_to_text(messages)` | 消息列表转纯文本（用于压缩摘要） |
-
-### 消息规范化
-
-`normalize_messages_for_api()` 确保 API 调用时消息格式正确：
-1. 过滤 system 消息（通过 system 参数传递）
-2. 合并连续相同角色的消息（如两条 user → 合并 content）
-3. 过滤空消息
-
----
-
-## tool_result_storage.py
-
-对应 TS: `utils/toolResultStorage.ts`（1040 行），Python 简化版 ~150 行。
-
-### 问题
-
-大型工具结果（如 grep 匹配几千行、bash 输出大量日志）会快速消耗上下文窗口。
-
-### 解决方案
-
-```
-工具结果（50K+ 字符）
-  │
-  ▼
-should_persist() → YES
-  │
-  ▼
-persist_tool_result()
-  ├─ 完整内容写入 .claude/tool-results/<id>.txt
-  └─ 返回 {filepath, preview, original_size}
-  │
-  ▼
-build_large_result_message()
-  └─ 上下文中只保留：
-     - 前 2000 字符预览
-     - <persisted-output> 标签（含文件路径引用）
-     - 模型可通过 read_file 查看完整内容
+```text
+messages.py             → message creation and normalization helpers
+attachments.py          → local attachment processing
+tool_result_storage.py  → persistence/truncation for large tool outputs
+api.py                  → integrates stored/truncated tool results
+cli.py                  → integrates attachment handling
 ```
 
-### 阈值
+## `messages.py`
 
-| 参数 | 值 | 说明 |
-|------|---|------|
-| `PERSIST_THRESHOLD` | 50,000 字符 | 超过此大小持久化到磁盘 |
-| `PREVIEW_SIZE` | 2,000 字符 | 预览保留的字符数 |
-| `TRUNCATE_SIZE` | 10,000 字符 | 非持久化的截断大小 |
+The current helper module focuses on constructing consistent model-facing messages.
 
-### 集成位置
+Key responsibilities:
 
-在 `api.py` 的 `_execute_tools_concurrent()` 中，工具执行后、PostToolUse Hook 前：
+- create user and assistant messages
+- normalize message content into API-friendly shapes
+- support tool-use / tool-result message forms used by the tool loop
 
-```python
-result_text = process_tool_result(result_text, tb["id"], tb["name"])
-```
+## `attachments.py`
 
----
+Attachments are processed before a user prompt is sent to the model.
 
-## attachments.py
+Current responsibilities include:
 
-对应 TS: `utils/attachments.ts`（3997 行），Python 简化版 ~180 行。
+- expanding referenced local files into message content
+- formatting attachment content so it can be appended to the prompt safely
 
-### 支持的附件类型
+## `tool_result_storage.py`
 
-| 类型 | 处理方式 | 支持的扩展名 |
-|------|---------|-------------|
-| 文本文件 | 读取内容注入消息 | .py .js .ts .md .json .yaml 等 30+ 种 |
-| 图片 | base64 编码 | .png .jpg .jpeg .gif .webp |
+Large tool outputs can quickly consume the context window. The current subsystem handles that by:
 
-### @文件引用
+- deciding whether a tool result should be persisted
+- writing oversized results to disk
+- returning a preview-oriented replacement message for the live conversation
+- truncating smaller-but-still-large outputs when persistence is unnecessary
 
-用户输入中通过 `@path/to/file` 引用文件：
+## Why This Exists
 
-```
-"请帮我分析 @src/main.py 的代码质量"
-```
+Without this layer:
 
-`process_attachments()` 自动：
-1. 提取 `src/main.py` 路径
-2. 读取文件内容
-3. 作为 content block 注入消息
+- `grep` output can dominate the transcript
+- verbose shell output can crowd out reasoning context
+- repeated tool calls can degrade model usefulness across long sessions
 
-### 集成位置
+## Current Strategy
 
-在 `cli.py` 的交互循环中，用户输入后、创建消息前：
+The current implementation uses a threshold-based approach:
 
-```python
-attachment_blocks = process_attachments(effective_input)
-if attachment_blocks:
-    content_blocks = [{"type": "text", "text": effective_input}] + attachment_blocks
-    messages.append(create_user_message(content_blocks))
-```
+- small output: keep inline
+- medium output: truncate inline
+- very large output: persist to disk and keep only a preview/reference in context
 
----
-
-## 与 TS 版的差异
-
-| 特性 | TS 版 | Python 版 |
-|------|-------|----------|
-| 消息规范化 | ✅ 完整 | ✅ 核心（角色合并、过滤） |
-| Tool result 持久化 | ✅ 完整 | ✅ 核心（磁盘存储 + 预览） |
-| Tool result 预算管理 | ✅ | ❌ |
-| 文件附件 | ✅ 完整 | ✅ 基础（@引用） |
-| 图片附件 | ✅ | ✅ |
-| PDF 附件 | ✅ | ❌ |
-| MCP 资源附件 | ✅ | ❌ |
-| 内存文件附件 | ✅ | ❌ |
-| 目录遍历附件 | ✅ | ❌ |
+This works together with `compact.py`, which can later clear older tool results again if needed.

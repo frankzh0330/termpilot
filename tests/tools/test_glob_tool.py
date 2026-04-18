@@ -2,7 +2,7 @@
 
 import pytest
 
-from cc_python.tools.glob_tool import GlobTool
+from termpilot.tools.glob_tool import GlobTool
 
 
 @pytest.fixture

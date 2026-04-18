@@ -5,7 +5,7 @@ from unittest.mock import patch, MagicMock, AsyncMock
 
 import pytest
 
-from cc_python.hooks import (
+from termpilot.hooks import (
     HookEvent, HookConfig, HookMatcher, HookResult,
     _parse_hook_config, _parse_hook_matcher,
     _get_matching_hooks, _build_hook_input, _parse_hook_stdout,
@@ -75,7 +75,7 @@ class TestLoadHooksConfig:
                 {"hooks": [{"type": "command", "command": "check.sh"}]}
             ],
         }})
-        from cc_python.hooks import load_hooks_config
+        from termpilot.hooks import load_hooks_config
         config = load_hooks_config()
         assert HookEvent.PRE_TOOL_USE in config
         assert HookEvent.USER_PROMPT_SUBMIT in config
@@ -83,12 +83,12 @@ class TestLoadHooksConfig:
 
     def test_empty(self, tmp_settings):
         tmp_settings({})
-        from cc_python.hooks import load_hooks_config
+        from termpilot.hooks import load_hooks_config
         assert load_hooks_config() == {}
 
     def test_ignores_unknown_events(self, tmp_settings):
         tmp_settings({"hooks": {"UnknownEvent": [{"hooks": [{"command": "x"}]}]}})
-        from cc_python.hooks import load_hooks_config
+        from termpilot.hooks import load_hooks_config
         assert load_hooks_config() == {}
 
 
@@ -176,7 +176,7 @@ class TestDispatchHooks:
         tmp_settings({"hooks": {"PreToolUse": [
             {"hooks": [{"command": "block.sh"}, {"command": "never.sh"}]},
         ]}})
-        with patch("cc_python.hooks._execute_command_hook", new_callable=AsyncMock) as mock_exec:
+        with patch("termpilot.hooks._execute_command_hook", new_callable=AsyncMock) as mock_exec:
             mock_exec.return_value = HookResult(exit_code=2, stdout="", stderr="blocked")
             results = await dispatch_hooks(HookEvent.PRE_TOOL_USE, tool_name="bash")
         assert len(results) == 1  # 第二个 hook 不执行
@@ -189,7 +189,7 @@ class TestDispatchHooks:
         ]}})
         deny_result = HookResult(exit_code=0, stdout='{"decision": "deny"}', stderr="")
         deny_result.decision = "deny"  # manually set since _parse_hook_stdout is bypassed
-        with patch("cc_python.hooks._execute_command_hook", new_callable=AsyncMock) as mock_exec:
+        with patch("termpilot.hooks._execute_command_hook", new_callable=AsyncMock) as mock_exec:
             mock_exec.return_value = deny_result
             results = await dispatch_hooks(HookEvent.PRE_TOOL_USE, tool_name="bash")
         assert len(results) == 1

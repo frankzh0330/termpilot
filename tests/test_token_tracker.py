@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from cc_python.token_tracker import (
+from termpilot.token_tracker import (
     TokenUsage,
     CostTracker,
     _get_model_family,

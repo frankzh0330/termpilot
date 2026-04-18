@@ -24,6 +24,11 @@ Thumbs.db
 
 # Claude
 .claude/
+CLAUDE.md
 
 # Session data
 sessions/
+
+# Local-only planning notes
+plan.md
+docs/notion_*.md

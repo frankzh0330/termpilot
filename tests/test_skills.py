@@ -2,7 +2,7 @@
 
 import pytest
 
-from cc_python.skills import (
+from termpilot.skills import (
     SkillDefinition, _parse_frontmatter,
     load_skills_from_dir, register_skill, register_bundled_skill,
     find_skill, get_all_skills, discover_and_load_skills,
@@ -135,8 +135,8 @@ class TestSkillRegistration:
 
 class TestDiscoverAndLoadSkills:
     def test_from_dirs(self, tmp_path, monkeypatch, clean_skills):
-        monkeypatch.setattr("cc_python.skills.Path.home", lambda: tmp_path / "home")
-        monkeypatch.setattr("cc_python.skills.Path.cwd", lambda: tmp_path / "project")
+        monkeypatch.setattr("termpilot.skills.Path.home", lambda: tmp_path / "home")
+        monkeypatch.setattr("termpilot.skills.Path.cwd", lambda: tmp_path / "project")
 
         # 用户全局 skills
         user_dir = tmp_path / "home" / ".claude" / "skills"

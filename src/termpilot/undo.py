@@ -3,7 +3,7 @@
 对应 TS: utils/diff.ts（~5K 行，TS 版有完整的 patch/diff 系统）
 
 Python 版持久化快照：
-- 快照保存到磁盘（~/.claude/undo/），重启后仍可回退
+- 快照保存到磁盘（~/.termpilot/undo/），重启后仍可回退
 - 每个 session 对应一个快照文件（JSONL 格式）
 - 记录文件路径 + 修改前内容 + 时间戳
 - write_file/edit_file 修改前自动保存
@@ -30,6 +30,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from termpilot.config import get_config_home
+
 logger = logging.getLogger(__name__)
 
 _MAX_SNAPSHOTS = 50
@@ -43,8 +45,7 @@ _snapshot_file: Path | None = None
 
 def _get_snapshot_dir() -> Path:
     """获取快照存储目录。"""
-    config_home = Path(os.environ.get("CLAUDE_CONFIG_DIR", str(Path.home() / ".claude")))
-    return config_home / "undo"
+    return get_config_home() / "undo"
 
 
 def _get_snapshot_file() -> Path:

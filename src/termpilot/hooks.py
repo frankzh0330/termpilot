@@ -24,7 +24,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from cc_python.config import get_settings
+from termpilot.config import get_settings
 
 logger = logging.getLogger(__name__)
 

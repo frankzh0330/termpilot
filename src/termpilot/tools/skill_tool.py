@@ -50,7 +50,7 @@ class SkillTool:
         return True
 
     async def call(self, **kwargs: Any) -> str:
-        from cc_python.skills import find_skill
+        from termpilot.skills import find_skill
 
         skill_name = kwargs.get("skill", "")
         args = kwargs.get("args", "")

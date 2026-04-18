@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from cc_python.session import (
+from termpilot.session import (
     _sanitize_path, make_transcript_entry, make_metadata_entry,
     SessionStorage, list_sessions, load_session,
 )
@@ -54,8 +54,8 @@ class TestMakeMetadataEntry:
 
 class TestSessionStorage:
     def test_start_new(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("cc_python.session._get_config_home", lambda: tmp_path)
-        monkeypatch.setattr("cc_python.session.Path.cwd", lambda: tmp_path / "project")
+        monkeypatch.setattr("termpilot.session._get_config_home", lambda: tmp_path)
+        monkeypatch.setattr("termpilot.session.Path.cwd", lambda: tmp_path / "project")
 
         storage = SessionStorage(cwd=str(tmp_path / "project"))
         sid = storage.start_session()
@@ -63,14 +63,14 @@ class TestSessionStorage:
         assert storage.session_id == sid
 
     def test_start_resume(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("cc_python.session._get_config_home", lambda: tmp_path)
+        monkeypatch.setattr("termpilot.session._get_config_home", lambda: tmp_path)
 
         storage = SessionStorage(cwd=str(tmp_path / "project"))
         sid = storage.start_session("fixed-session-id")
         assert sid == "fixed-session-id"
 
     def test_record_messages(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("cc_python.session._get_config_home", lambda: tmp_path)
+        monkeypatch.setattr("termpilot.session._get_config_home", lambda: tmp_path)
 
         storage = SessionStorage(cwd=str(tmp_path / "project"))
         storage.start_session("test-sess")
@@ -92,7 +92,7 @@ class TestSessionStorage:
         assert entry2["message"]["role"] == "assistant"
 
     def test_record_tool_call(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("cc_python.session._get_config_home", lambda: tmp_path)
+        monkeypatch.setattr("termpilot.session._get_config_home", lambda: tmp_path)
 
         storage = SessionStorage(cwd=str(tmp_path / "project"))
         storage.start_session("test-sess")
@@ -110,7 +110,7 @@ class TestSessionStorage:
         assert tool_result["message"]["content"][0]["type"] == "tool_result"
 
     def test_parent_uuid_chain(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("cc_python.session._get_config_home", lambda: tmp_path)
+        monkeypatch.setattr("termpilot.session._get_config_home", lambda: tmp_path)
 
         storage = SessionStorage(cwd=str(tmp_path / "project"))
         storage.start_session("test-sess")
@@ -129,7 +129,7 @@ class TestSessionStorage:
         assert entry2["parentUuid"] == uuid1
 
     def test_no_session_id_noop(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("cc_python.session._get_config_home", lambda: tmp_path)
+        monkeypatch.setattr("termpilot.session._get_config_home", lambda: tmp_path)
         storage = SessionStorage(cwd=str(tmp_path / "project"))
         # 没有 start_session，record 应该是无操作
         storage.record_user_message("hello")
@@ -138,12 +138,12 @@ class TestSessionStorage:
 
 class TestListSessions:
     def test_empty(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("cc_python.session._get_config_home", lambda: tmp_path)
-        monkeypatch.setattr("cc_python.session.Path.cwd", lambda: tmp_path / "project")
+        monkeypatch.setattr("termpilot.session._get_config_home", lambda: tmp_path)
+        monkeypatch.setattr("termpilot.session.Path.cwd", lambda: tmp_path / "project")
         assert list_sessions(cwd=str(tmp_path / "project")) == []
 
     def test_with_sessions(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("cc_python.session._get_config_home", lambda: tmp_path)
+        monkeypatch.setattr("termpilot.session._get_config_home", lambda: tmp_path)
         cwd = str(tmp_path / "project")
 
         storage = SessionStorage(cwd=cwd)
@@ -157,7 +157,7 @@ class TestListSessions:
 
 class TestLoadSession:
     def test_returns_messages(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("cc_python.session._get_config_home", lambda: tmp_path)
+        monkeypatch.setattr("termpilot.session._get_config_home", lambda: tmp_path)
         cwd = str(tmp_path / "project")
 
         storage = SessionStorage(cwd=cwd)
@@ -171,7 +171,7 @@ class TestLoadSession:
         assert messages[1]["role"] == "assistant"
 
     def test_skips_metadata(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("cc_python.session._get_config_home", lambda: tmp_path)
+        monkeypatch.setattr("termpilot.session._get_config_home", lambda: tmp_path)
         cwd = str(tmp_path / "project")
 
         storage = SessionStorage(cwd=cwd)

@@ -15,6 +15,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from termpilot.config import get_config_home
+
 logger = logging.getLogger(__name__)
 
 
@@ -134,8 +136,8 @@ _DOING_TASKS_SECTION = """\
  - Don't create helpers, utilities, or abstractions for one-time operations. Don't design for hypothetical future requirements. The right amount of complexity is what the task actually requires—no speculative abstractions, but no half-finished implementations either. Three similar lines of code is better than a premature abstraction.
  - Avoid backwards-compatibility hacks like renaming unused _vars, re-exporting types, adding // removed comments for removed code, etc. If you are certain that something is unused, you can delete it completely.
  - If the user asks for help or wants to give feedback inform them of the following:
-   - /help: Get help with using Claude Code
-   - To give feedback, users should report the issue at https://github.com/anthropics/claude-code/issues"""
+   - /help: Get help with using TermPilot
+   - To give feedback, users should report the issue at https://github.com/frankzh0330/termpilot/issues"""
 
 _TOOL_USAGE_SECTION = """\
 # Using your tools
@@ -168,7 +170,7 @@ _TONE_STYLE_SECTION = """\
  - Only use emojis if the user explicitly requests it. Avoid using emojis in all communication unless asked.
  - Your responses should be short and concise.
  - When referencing specific functions or pieces of code include the pattern file_path:line_number to allow the user to easily navigate to the source code location.
- - When referencing GitHub issues or pull requests, use the owner/repo#123 format (e.g. anthropics/claude-code#100) so they render as clickable links.
+ - When referencing GitHub issues or pull requests, use the owner/repo#123 format (e.g. frankzh0330/termpilot#100) so they render as clickable links.
  - Do not use a colon before tool calls. Your tool calls may not be shown directly in the output, so text like "Let me read the file:" followed by a read tool call should just be "Let me read the file." with a period."""
 
 _OUTPUT_EFFICIENCY_SECTION = """\
@@ -200,7 +202,7 @@ _SUMMARIZE_TOOL_RESULTS_SECTION = (
 def _get_env_info_section(model: str = "") -> str:
     """对应 TS computeSimpleEnvInfo()，生成环境信息 section。
 
-    包含：平台、Shell、CWD、Git 状态、模型名称、Claude Code 渠道信息。
+    包含：平台、Shell、CWD、Git 状态、模型名称、TermPilot 渠道信息。
     """
     from datetime import datetime
 
@@ -219,20 +221,17 @@ def _get_env_info_section(model: str = "") -> str:
         items.append(f"You are powered by the model {model}.")
 
     items.append(
-        "The most recent Claude model family is Claude 4.5/4.6. Model IDs — "
-        "Opus 4.6: 'claude-opus-4-6', Sonnet 4.6: 'claude-sonnet-4-6', "
+        "The most recent Claude model family is Claude 4.X. Model IDs — "
+        "Opus 4.7: 'claude-opus-4-7', Sonnet 4.6: 'claude-sonnet-4-6', "
         "Haiku 4.5: 'claude-haiku-4-5-20251001'. When building AI applications, "
         "default to the latest and most capable Claude models."
     )
     items.append(
-        "Claude Code is available as a CLI in the terminal, desktop app "
-        "(Mac/Windows), web app (claude.ai/code), and IDE extensions "
-        "(VS Code, JetBrains)."
+        "TermPilot is available as a CLI in the terminal."
     )
     items.append(
-        "Fast mode for Claude Code uses the same Claude Opus 4.6 model with "
-        "faster output. It does NOT switch to a different model. It can be "
-        "toggled with /fast."
+        "Fast mode uses the same model with faster output. "
+        "It can be toggled with /fast."
     )
 
     if git_status:
@@ -352,9 +351,8 @@ def get_summarize_tool_results_section() -> str:
 def get_memory_dir() -> Path:
     """获取当前项目的 memory 目录路径。"""
     cwd = str(Path.cwd())
-    home = str(Path.home())
     encoded_path = cwd.replace("/", "-").replace("\\", "-")
-    return Path(home) / ".claude" / "projects" / encoded_path / "memory"
+    return get_config_home() / "projects" / encoded_path / "memory"
 
 
 def load_memory_prompt() -> str | None:
@@ -695,7 +693,7 @@ def build_system_prompt(
     8. Session-specific guidance (动态)
     8.5 CLAUDE.md 项目指令 (动态)
     9. Memory (动态)
-    10. Environment info (动态，含模型名/Claude Code 渠道)
+    10. Environment info (动态，含模型名/TermPilot 渠道)
     11. Language (动态)
     12. MCP instructions (动态)
     13. Summarize tool results (动态)
@@ -742,7 +740,7 @@ def build_system_prompt(
         parts.append(session_guidance)
 
     # 8.5 CLAUDE.md 项目指令
-    from cc_python.claudemd import load_claude_md
+    from termpilot.claudemd import load_claude_md
     claude_md = load_claude_md()
     if claude_md:
         logger.debug("CLAUDE.md injected: %d chars", len(claude_md))

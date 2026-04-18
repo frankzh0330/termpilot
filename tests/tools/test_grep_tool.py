@@ -2,7 +2,7 @@
 
 import pytest
 
-from cc_python.tools.grep_tool import GrepTool
+from termpilot.tools.grep_tool import GrepTool
 
 
 @pytest.fixture

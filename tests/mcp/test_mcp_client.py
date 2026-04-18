@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from cc_python.mcp.client import MCPClient
-from cc_python.mcp.transport import BaseTransport
+from termpilot.mcp.client import MCPClient
+from termpilot.mcp.transport import BaseTransport
 
 
 class TestMCPClient:

@@ -82,7 +82,7 @@ class EditFileTool:
             return f"错误：文件不存在: {file_path}"
 
         # 修改前保存快照（用于 /undo 回退）
-        from cc_python.undo import save_snapshot
+        from termpilot.undo import save_snapshot
         save_snapshot(file_path, operation="edit_file",
                       old_string=old_string, new_string=new_string)
 
@@ -102,7 +102,7 @@ class EditFileTool:
                 path.write_text(new_content, encoding="utf-8")
             # 检测 memory 目录写入
             try:
-                from cc_python.context import get_memory_dir
+                from termpilot.context import get_memory_dir
                 mem_dir = str(get_memory_dir())
                 if str(path).startswith(mem_dir):
                     logger.info("memory edit: %s (replaced %d)", file_path, count if replace_all else 1)

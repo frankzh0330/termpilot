@@ -65,7 +65,7 @@ class WriteFileTool:
         path = Path(file_path).expanduser()
 
         # 修改前保存快照（用于 /undo 回退）
-        from cc_python.undo import save_snapshot
+        from termpilot.undo import save_snapshot
         save_snapshot(file_path, operation="write_file")
 
         def _write() -> str:
@@ -74,7 +74,7 @@ class WriteFileTool:
             line_count = content.count("\n") + (1 if content and not content.endswith("\n") else 0)
             # 检测 memory 目录写入
             try:
-                from cc_python.context import get_memory_dir
+                from termpilot.context import get_memory_dir
                 mem_dir = str(get_memory_dir())
                 if str(path).startswith(mem_dir):
                     logger.info("memory write: %s (%d chars)", file_path, len(content))

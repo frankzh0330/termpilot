@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 # 常量
 # ---------------------------------------------------------------------------
 
-CONTEXT_WINDOW_DEFAULT = 200_000  # Claude Sonnet 默认上下文窗口
+CONTEXT_WINDOW_DEFAULT = 200_000  # 默认上下文窗口
 COMPACT_THRESHOLD_RATIO = 0.75  # 75% 时触发压缩
 COMPACT_TARGET_RATIO = 0.50  # 压缩到 50%
 

@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from cc_python.mcp.config import get_mcp_configs
+from termpilot.mcp.config import get_mcp_configs
 
 
 class TestGetMcpConfigs:

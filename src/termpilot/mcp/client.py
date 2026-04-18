@@ -16,7 +16,7 @@ import json
 import logging
 from typing import Any
 
-from cc_python.mcp.transport import BaseTransport
+from termpilot.mcp.transport import BaseTransport
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +153,7 @@ class MCPClient:
                 "protocolVersion": _MCP_PROTOCOL_VERSION,
                 "capabilities": {},
                 "clientInfo": {
-                    "name": "cc_python",
+                    "name": "termpilot",
                     "version": "0.1.0",
                 },
             },

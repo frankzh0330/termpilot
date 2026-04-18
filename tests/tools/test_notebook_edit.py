@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from cc_python.tools.notebook_edit import NotebookEditTool
+from termpilot.tools.notebook_edit import NotebookEditTool
 
 
 @pytest.fixture

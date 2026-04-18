@@ -141,9 +141,9 @@ class AgentTool:
         2. 创建受限的工具集（排除 agent 自身防止无限嵌套）
         3. 调用 query_with_tools 实现递归工具调用
         """
-        from cc_python.api import create_client, query_with_tools
-        from cc_python.config import get_effective_model
-        from cc_python.tools import get_all_tools
+        from termpilot.api import create_client, query_with_tools
+        from termpilot.config import get_effective_model
+        from termpilot.tools import get_all_tools
 
         # 构建工具集
         all_tools = get_all_tools()
@@ -162,7 +162,7 @@ class AgentTool:
         system_prompt = config["prompt"]
 
         # 添加环境信息
-        from cc_python.context import get_system_context, get_git_status
+        from termpilot.context import get_system_context, get_git_status
         sys_ctx = get_system_context()
         system_prompt += f"\n\nEnvironment: {sys_ctx['os']}, cwd={sys_ctx['cwd']}"
 

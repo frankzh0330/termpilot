@@ -6,7 +6,7 @@
 - types/logs.ts — Entry 类型定义
 
 存储格式：JSONL（每行一个 JSON 对象，追加写入）
-存储路径：~/.claude/projects/<sanitized-path>/<session-id>.jsonl
+存储路径：~/.termpilot/projects/<sanitized-path>/<session-id>.jsonl
 
 每条消息通过 parentUuid 形成链表结构，支持分叉和恢复。
 """
@@ -22,12 +22,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from termpilot.config import get_config_home
+
 logger = logging.getLogger(__name__)
-
-
-def _get_config_home() -> Path:
-    """对应 TS envUtils.ts getClaudeConfigHomeDir()。"""
-    return Path(os.environ.get("CLAUDE_CONFIG_DIR", str(Path.home() / ".claude")))
 
 
 def _sanitize_path(path: str) -> str:
@@ -46,7 +43,7 @@ def _get_projects_dir() -> Path:
 def get_project_dir(cwd: str | None = None) -> Path:
     """对应 TS sessionStorage.ts getProjectDir()。
 
-    返回 ~/.claude/projects/<sanitized-cwd>/
+    返回 ~/.termpilot/projects/<sanitized-cwd>/
     """
     work_dir = cwd or str(Path.cwd())
     return _get_projects_dir() / _sanitize_path(work_dir)

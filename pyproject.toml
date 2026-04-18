@@ -1,7 +1,11 @@
 [project]
-name = "cc-python"
-version = "0.1.0"
-requires-python = ">=3.12"
+name = "termpilot"
+version = "0.1.2"
+description = "A terminal AI coding assistant implemented in Python."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "openai>=1.0.0",
     "click>=8.1",
@@ -11,22 +15,52 @@ dependencies = [
     "beautifulsoup4>=4.12.0",
     "duckduckgo-search>=7.0.0",
 ]
-
+authors = [
+  { name = "Frank Zhang", email = "zhangxin20171201@gmail.com" }
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Terminals",
+    "Typing :: Typed",
+]
+keywords = ["ai", "cli", "coding-agent", "terminal", "developer-tools", "mcp", "llm"]
+[project.urls]
+Homepage = "https://github.com/frankzh0330/termpilot"
+Repository = "https://github.com/frankzh0330/termpilot"
+Issues = "https://github.com/frankzh0330/termpilot/issues"
 [project.scripts]
-cc-python = "cc_python.cli:main"
+termpilot = "termpilot.cli:main"
 
 [build-system]
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
+anthropic = [
+    "anthropic>=0.40.0",
+]
 dev = [
+    "build>=1.2.0",
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
+    "twine>=5.1.0",
 ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+termpilot = ["py.typed"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

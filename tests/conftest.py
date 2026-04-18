@@ -17,8 +17,8 @@ def tmp_settings(tmp_path, monkeypatch):
         settings_file.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         return settings_file
 
-    monkeypatch.setattr("cc_python.config._get_settings_path", lambda: settings_file)
-    monkeypatch.setattr("cc_python.permissions._get_settings_path", lambda: settings_file)
+    monkeypatch.setattr("termpilot.config._get_settings_path", lambda: settings_file)
+    monkeypatch.setattr("termpilot.permissions._get_settings_path", lambda: settings_file)
     _write({})
     return _write
 
@@ -51,7 +51,7 @@ def sample_notebook(tmp_path):
 @pytest.fixture
 def clean_skills():
     """清空 skill 注册表。"""
-    import cc_python.skills as sk
+    import termpilot.skills as sk
     sk._skills.clear()
     yield
     sk._skills.clear()
@@ -60,7 +60,7 @@ def clean_skills():
 @pytest.fixture
 def clean_commands():
     """重置命令注册表（保留内置命令）。"""
-    import cc_python.commands as cmd
+    import termpilot.commands as cmd
     cmd._commands.clear()
     cmd.register_builtin_commands()
     yield
@@ -71,7 +71,7 @@ def clean_commands():
 @pytest.fixture
 def clean_tasks():
     """清空任务注册表。"""
-    import cc_python.tools.task as task_mod
+    import termpilot.tools.task as task_mod
     task_mod._tasks.clear()
     yield
     task_mod._tasks.clear()

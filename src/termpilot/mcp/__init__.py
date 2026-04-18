@@ -17,9 +17,9 @@ import asyncio
 import logging
 from typing import Any
 
-from cc_python.mcp.client import MCPClient
-from cc_python.mcp.config import McpServerConfig, get_mcp_configs
-from cc_python.mcp.transport import SSETransport, StdioTransport
+from termpilot.mcp.client import MCPClient
+from termpilot.mcp.config import McpServerConfig, get_mcp_configs
+from termpilot.mcp.transport import SSETransport, StdioTransport
 
 logger = logging.getLogger(__name__)
 

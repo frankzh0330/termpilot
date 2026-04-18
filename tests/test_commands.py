@@ -2,7 +2,7 @@
 
 import pytest
 
-from cc_python.commands import (
+from termpilot.commands import (
     CommandResult, Command, parse_slash_command,
     register_command, find_command, get_all_commands, dispatch_command,
 )

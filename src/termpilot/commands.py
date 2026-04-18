@@ -148,7 +148,7 @@ async def dispatch_command(
             return CommandResult(output=f"Command error: {e}")
 
     # 2. Skill 回退（对应 TS: hasCommand → getCommand 查找 prompt 类型命令）
-    from cc_python.skills import find_skill
+    from termpilot.skills import find_skill
     skill = find_skill(name)
     if skill:
         # 检查 userInvocable（对应 TS: command.userInvocable === false 的处理）
@@ -193,7 +193,7 @@ async def _cmd_help(args: str, ctx: dict) -> CommandResult:
         lines.append(f"  /{cmd.name}{hint}{aliases} — {cmd.description}")
 
     # 列出 user-invocable skills（对应 TS: 命令和 skill 统一展示）
-    from cc_python.skills import get_all_skills
+    from termpilot.skills import get_all_skills
     skills = [s for s in get_all_skills() if s.user_invocable]
     if skills:
         lines.append("")
@@ -211,8 +211,8 @@ async def _cmd_compact(args: str, ctx: dict) -> CommandResult:
         return CommandResult(output="No messages to compact.")
 
     # 调用压缩
-    from cc_python.compact import auto_compact_if_needed, estimate_tokens
-    from cc_python.config import get_context_window
+    from termpilot.compact import auto_compact_if_needed, estimate_tokens
+    from termpilot.config import get_context_window
 
     context_window = get_context_window()
     system_prompt = ctx.get("system_prompt", "")
@@ -254,7 +254,7 @@ async def _cmd_clear(args: str, ctx: dict) -> CommandResult:
 
 async def _cmd_config(args: str, ctx: dict) -> CommandResult:
     """显示当前配置。"""
-    from cc_python.config import (
+    from termpilot.config import (
         get_effective_api_key,
         get_effective_base_url,
         get_effective_model,
@@ -298,11 +298,11 @@ async def _cmd_config(args: str, ctx: dict) -> CommandResult:
 
 async def _cmd_skills(args: str, ctx: dict) -> CommandResult:
     """列出可用 skills。"""
-    from cc_python.skills import get_all_skills
+    from termpilot.skills import get_all_skills
 
     skills = get_all_skills()
     if not skills:
-        return CommandResult(output="No skills available. Create .claude/skills/*.md to add custom skills.")
+        return CommandResult(output="No skills available. Create .claude/skills/*.md or ~/.termpilot/skills/*.md to add custom skills.")
 
     lines = ["Available skills:", ""]
     for skill in sorted(skills, key=lambda s: s.name):
@@ -318,11 +318,12 @@ async def _cmd_mcp(args: str, ctx: dict) -> CommandResult:
     if not mcp_manager:
         return CommandResult(output="MCP not initialized.")
 
-    from cc_python.mcp.config import get_mcp_configs
+    from termpilot.mcp.config import get_mcp_configs
+    from termpilot.config import get_settings_write_path
     configs = get_mcp_configs()
 
     if not configs:
-        return CommandResult(output="No MCP servers configured.\n\nAdd to ~/.claude/settings.json:\n" + json.dumps({
+        return CommandResult(output=f"No MCP servers configured.\n\nAdd to {get_settings_write_path()}:\n" + json.dumps({
             "mcpServers": {
                 "example": {
                     "type": "stdio",
@@ -373,7 +374,7 @@ async def _cmd_undo(args: str, ctx: dict) -> CommandResult:
 
     对应 TS 的 undo 功能：弹出快照栈顶，恢复文件到修改前的状态。
     """
-    from cc_python.undo import pop_snapshot, has_snapshots
+    from termpilot.undo import pop_snapshot, has_snapshots
 
     if not has_snapshots():
         return CommandResult(output="Nothing to undo. No file snapshots available.")
@@ -444,8 +445,6 @@ Follow these steps carefully:
 ```bash
 git commit -m "$(cat <<'EOF'
    <commit message here>
-
-   Co-Authored-By: Claude <noreply@anthropic.com>
    EOF
    )
 ```

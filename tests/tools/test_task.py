@@ -2,7 +2,7 @@
 
 import pytest
 
-from cc_python.tools.task import (
+from termpilot.tools.task import (
     TaskCreateTool, TaskUpdateTool, TaskListTool, TaskGetTool,
     _tasks,
 )
