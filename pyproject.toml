@@ -1,6 +1,6 @@
 [project]
 name = "termpilot"
-version = "0.1.2"
+version = "0.1.4"
 description = "A terminal AI coding assistant implemented in Python."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,6 +14,7 @@ dependencies = [
     "markdownify>=0.14.0",
     "beautifulsoup4>=4.12.0",
     "duckduckgo-search>=7.0.0",
+    "questionary>=2.0.0",
 ]
 authors = [
   { name = "Frank Zhang", email = "zhangxin20171201@gmail.com" }

@@ -71,61 +71,54 @@ pip install -U termpilot
 
 ### Configure
 
-Set your provider credentials in `~/.termpilot/settings.json`:
+On first launch, TermPilot will guide you through an interactive setup:
 
-```json
-{
-  "provider": "anthropic",
-  "env": {
-    "ANTHROPIC_API_KEY": "your-api-key-here"
-  }
-}
+```bash
+termpilot
 ```
 
-OpenAI official endpoint:
+You'll see a provider selector:
 
-```json
-{
-  "provider": "openai",
-  "env": {
-    "OPENAI_API_KEY": "your-openai-api-key",
-    "OPENAI_MODEL": "gpt-4o"
-  }
-}
+```
+? Select your LLM provider:
+  > Anthropic (Claude)
+    OpenAI
+    Zhipu GLM
+    DeepSeek
+    Qwen / DashScope
+    Moonshot / Kimi
+    SiliconFlow
+    OpenRouter
+    Groq
+    Together
+    Fireworks
+    Ollama (local)
+    vLLM (local)
+    OpenAI-compatible (custom)
 ```
 
-Zhipu GLM endpoint:
+Select your provider, enter your API key, and you're ready to go.
+
+To reconfigure later:
+
+```bash
+termpilot model
+```
+
+Or manually edit `~/.termpilot/settings.json`:
 
 ```json
 {
   "provider": "zhipu",
   "env": {
-    "ZHIPU_API_KEY": "your-zhipu-api-key",
+    "ZHIPU_API_KEY": "your-api-key",
     "ZHIPU_BASE_URL": "https://open.bigmodel.cn/api/paas/v4",
-    "ZHIPU_MODEL": "glm-4-flash"
+    "ZHIPU_MODEL": "glm-5.1"
   }
 }
 ```
 
-Generic OpenAI-compatible providers such as DeepSeek, Qwen/DashScope, Moonshot, SiliconFlow, OpenRouter, Groq, Together, Fireworks, Ollama, or self-hosted vLLM:
-
-```json
-{
-  "provider": "openai_compatible",
-  "env": {
-    "OPENAI_API_KEY": "your-provider-key",
-    "OPENAI_BASE_URL": "https://your-provider.example.com/v1",
-    "OPENAI_MODEL": "your-model-name"
-  }
-}
-```
-
-Supported configuration patterns:
-
-- `provider = "anthropic"` with `ANTHROPIC_*`
-- `provider = "openai"` with `OPENAI_*`
-- `provider = "openai_compatible"` with `OPENAI_*` or `TERMPILOT_*`
-- provider aliases like `zhipu`, `deepseek`, `qwen`, `moonshot`, `siliconflow`, `openrouter`, `groq`, `together`, `fireworks`, `ollama`, and `vllm`
+Supported providers: Anthropic, OpenAI, Zhipu GLM, DeepSeek, Qwen/DashScope, Moonshot/Kimi, SiliconFlow, OpenRouter, Groq, Together, Fireworks, Ollama, vLLM, and any OpenAI-compatible endpoint.
 
 Environment variables override `settings.json`.
 

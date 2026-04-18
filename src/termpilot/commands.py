@@ -319,11 +319,11 @@ async def _cmd_mcp(args: str, ctx: dict) -> CommandResult:
         return CommandResult(output="MCP not initialized.")
 
     from termpilot.mcp.config import get_mcp_configs
-    from termpilot.config import get_settings_write_path
+    from termpilot.config import get_settings_path
     configs = get_mcp_configs()
 
     if not configs:
-        return CommandResult(output=f"No MCP servers configured.\n\nAdd to {get_settings_write_path()}:\n" + json.dumps({
+        return CommandResult(output=f"No MCP servers configured.\n\nAdd to {get_settings_path()}:\n" + json.dumps({
             "mcpServers": {
                 "example": {
                     "type": "stdio",

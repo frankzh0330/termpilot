@@ -3,11 +3,10 @@
 对应 TS: utils/config.ts + utils/managedEnv.ts
 
 核心机制：
-1. 优先读取 ~/.termpilot/settings.json
-2. 兼容读取旧的 ~/.claude/settings.json
-3. 其中的 env 字段包含环境变量
-4. 将 env 注入到 os.environ
-5. 后续创建 API 客户端时自动使用这些环境变量
+1. 读取 ~/.termpilot/settings.json
+2. 其中的 env 字段包含环境变量
+3. 将 env 注入到 os.environ
+4. 后续创建 API 客户端时自动使用这些环境变量
 
 Python 版在此基础上额外支持显式 provider 选择：
 - anthropic
@@ -24,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -69,52 +69,221 @@ def _normalize_provider(provider: str | None) -> str:
     return _PROVIDER_ALIASES.get(provider.strip().lower(), "openai_compatible")
 
 
+_SETTINGS_TEMPLATE = """\
+{
+  "provider": "openai",
+  "env": {
+    "OPENAI_API_KEY": "sk-your-api-key",
+    "OPENAI_MODEL": "gpt-4o"
+  }
+}
+"""
+
+_PROVIDERS: dict[str, dict[str, Any]] = {
+    "Anthropic (Claude)": {
+        "provider": "anthropic",
+        "env_key": "ANTHROPIC_API_KEY",
+        "base_url": None,
+        "default_model": "claude-sonnet-4-20250514",
+    },
+    "OpenAI": {
+        "provider": "openai",
+        "env_key": "OPENAI_API_KEY",
+        "base_url": None,
+        "default_model": "gpt-4o",
+    },
+    "Zhipu GLM": {
+        "provider": "zhipu",
+        "env_key": "ZHIPU_API_KEY",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "default_model": "glm-5.1",
+    },
+    "DeepSeek": {
+        "provider": "deepseek",
+        "env_key": "DEEPSEEK_API_KEY",
+        "base_url": "https://api.deepseek.com/v1",
+        "default_model": "deepseek-chat",
+    },
+    "Qwen / DashScope": {
+        "provider": "qwen",
+        "env_key": "DASHSCOPE_API_KEY",
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "default_model": "qwen-plus",
+    },
+    "Moonshot / Kimi": {
+        "provider": "moonshot",
+        "env_key": "MOONSHOT_API_KEY",
+        "base_url": "https://api.moonshot.cn/v1",
+        "default_model": "moonshot-v1-8k",
+    },
+    "SiliconFlow": {
+        "provider": "siliconflow",
+        "env_key": "SILICONFLOW_API_KEY",
+        "base_url": "https://api.siliconflow.cn/v1",
+        "default_model": "Qwen/Qwen2.5-7B-Instruct",
+    },
+    "OpenRouter": {
+        "provider": "openrouter",
+        "env_key": "OPENROUTER_API_KEY",
+        "base_url": "https://openrouter.ai/api/v1",
+        "default_model": "openai/gpt-4o",
+    },
+    "Groq": {
+        "provider": "groq",
+        "env_key": "GROQ_API_KEY",
+        "base_url": "https://api.groq.com/openai/v1",
+        "default_model": "llama-3.3-70b-versatile",
+    },
+    "Together": {
+        "provider": "together",
+        "env_key": "TOGETHER_API_KEY",
+        "base_url": "https://api.together.xyz/v1",
+        "default_model": "meta-llama/Llama-3-70b-chat-hf",
+    },
+    "Fireworks": {
+        "provider": "fireworks",
+        "env_key": "FIREWORKS_API_KEY",
+        "base_url": "https://api.fireworks.ai/inference/v1",
+        "default_model": "accounts/fireworks/models/llama-v3p1-70b-chat",
+    },
+    "Ollama (local)": {
+        "provider": "ollama",
+        "env_key": None,
+        "base_url": "http://localhost:11434/v1",
+        "default_model": "llama3",
+    },
+    "vLLM (local)": {
+        "provider": "vllm",
+        "env_key": None,
+        "base_url": "http://localhost:8000/v1",
+        "default_model": "",
+    },
+    "OpenAI-compatible (custom)": {
+        "provider": "openai_compatible",
+        "env_key": "TERMPILOT_API_KEY",
+        "base_url": "",
+        "default_model": "",
+        "base_url_env_key": "TERMPILOT_BASE_URL",
+        "model_env_key": "TERMPILOT_MODEL",
+    },
+}
+
+
 def get_config_home() -> Path:
     """获取 TermPilot 配置根目录。
 
     优先级：
     1. TERMPILOT_CONFIG_DIR
-    2. 兼容旧变量 CLAUDE_CONFIG_DIR
-    3. ~/.termpilot
+    2. ~/.termpilot
     """
-    configured = _first_nonempty(
-        os.environ.get("TERMPILOT_CONFIG_DIR"),
-        os.environ.get("CLAUDE_CONFIG_DIR"),
-    )
+    configured = os.environ.get("TERMPILOT_CONFIG_DIR")
     if configured:
         return Path(configured).expanduser()
     return Path.home() / ".termpilot"
 
 
-def _get_legacy_config_home() -> Path | None:
-    """获取兼容读取用的旧配置目录。"""
-    if os.environ.get("TERMPILOT_CONFIG_DIR") or os.environ.get("CLAUDE_CONFIG_DIR"):
-        return None
-    return Path.home() / ".claude"
-
-
-def get_settings_write_path() -> Path:
-    """获取 settings.json 的写入/展示路径。"""
+def get_settings_path() -> Path:
+    """获取 settings.json 路径。"""
     return get_config_home() / "settings.json"
 
 
-def get_settings_path() -> Path:
-    """获取 settings.json 的读取路径。
+def ensure_settings_template() -> bool:
+    """首次启动时创建 settings.json。交互式环境启动 wizard，非 TTY 写模板。"""
+    path = get_settings_path()
+    if path.exists():
+        return False
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if sys.stdin.isatty():
+            run_setup_wizard()
+        else:
+            path.write_text(_SETTINGS_TEMPLATE, encoding="utf-8")
+            logger.debug("created settings template at %s", path)
+        return True
+    except OSError:
+        return False
 
-    默认使用 ~/.termpilot/settings.json。
-    若该文件不存在，则兼容读取旧的 ~/.claude/settings.json。
-    """
-    primary = get_settings_write_path()
-    if primary.exists():
-        return primary
 
-    legacy_home = _get_legacy_config_home()
-    if legacy_home is not None:
-        legacy = legacy_home / "settings.json"
-        if legacy.exists():
-            return legacy
+def run_setup_wizard() -> None:
+    """交互式 provider 选择向导。"""
+    import questionary
 
-    return primary
+    settings_path = get_settings_path()
+
+    choice = questionary.select(
+        "Select your LLM provider:",
+        choices=list(_PROVIDERS.keys()),
+    ).ask()
+    if not choice:
+        sys.exit(0)
+
+    info = _PROVIDERS[choice]
+    env: dict[str, str] = {}
+
+    # Prompt for API key if needed
+    env_key = info.get("env_key")
+    if env_key:
+        api_key = questionary.text(
+            f"Enter your {env_key}:",
+        ).ask()
+        if not api_key:
+            sys.exit(0)
+        env[env_key] = api_key
+
+    # Prompt for base URL if custom or empty
+    base_url = info.get("base_url", "")
+    if base_url == "":
+        base_url = questionary.text(
+            "Enter base URL (e.g. https://api.example.com/v1):",
+        ).ask() or ""
+
+    # Prompt for model if not predefined
+    default_model = info.get("default_model", "")
+    if not default_model:
+        default_model = questionary.text(
+            "Enter model name:",
+        ).ask() or ""
+
+    # Build env dict with base URL and model
+    provider_name = info["provider"]
+    if base_url:
+        url_var = info.get("base_url_env_key") or f"{provider_name.upper()}_BASE_URL"
+        env[url_var] = base_url
+    if default_model:
+        model_var = info.get("model_env_key") or f"{provider_name.upper()}_MODEL"
+        env[model_var] = default_model
+
+    settings = {
+        "provider": info["provider"],
+        "env": env,
+    }
+
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(
+        json.dumps(settings, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.text import Text
+    console = Console()
+    console.print(Panel(
+        Text.from_markup(
+            f"[green]Configuration saved![/]\n\n"
+            f"Provider: [bold]{info['provider']}[/]\n"
+            f"Model: [bold]{default_model or 'default'}[/]\n"
+            f"Config: [dim]{settings_path}[/]"
+        ),
+        border_style="green",
+    ))
+
+
+def is_placeholder_key(key: str | None) -> bool:
+    """判断 API key 是否为占位符或空值。"""
+    if not key or not key.strip():
+        return True
+    return "your-api-key" in key.lower()
 
 
 def get_settings() -> dict[str, Any]:

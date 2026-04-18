@@ -21,7 +21,7 @@ from rich.text import Text
 from termpilot.api import create_client, query_with_tools
 from termpilot.attachments import process_attachments
 from termpilot.commands import dispatch_command, parse_slash_command
-from termpilot.config import get_config_home, get_effective_model
+from termpilot.config import ensure_settings_template, get_config_home, get_effective_model
 from termpilot.context import build_system_prompt
 from termpilot.hooks import HookEvent, dispatch_hooks
 from termpilot.mcp import MCPManager
@@ -245,12 +245,16 @@ async def _async_single_prompt(prompt: str, model: str) -> None:
     from termpilot.token_tracker import CostTracker
     cost_tracker = CostTracker()
 
-    response = await _stream_response_with_tools(
-        client, client_format, model, system_prompt, messages, tools, storage,
-        permission_context=permission_context,
-        session_id=storage.session_id or "",
-        cost_tracker=cost_tracker,
-    )
+    try:
+        response = await _stream_response_with_tools(
+            client, client_format, model, system_prompt, messages, tools, storage,
+            permission_context=permission_context,
+            session_id=storage.session_id or "",
+            cost_tracker=cost_tracker,
+        )
+    except Exception as api_exc:
+        _print_connection_error(api_exc)
+        return
 
     storage.record_assistant_message(response)
     logger.debug("single prompt response: %d chars", len(response))
@@ -307,6 +311,21 @@ def _pick_session(sessions: list[dict]) -> str | None:
     except (ValueError, KeyboardInterrupt):
         pass
     return None
+
+
+def _print_connection_error(exc: Exception) -> None:
+    """打印连接失败的友好提示。"""
+    from termpilot.config import get_settings_path
+    settings_path = get_settings_path()
+    console.print(
+        f"[red]Failed to connect to LLM API.[/]\n\n"
+        f"Check [bold]{settings_path}[/]:\n"
+        f"  - API key is valid and active\n"
+        f"  - Base URL is correct\n"
+        f"  - Network is accessible\n\n"
+        f"Tip: run [bold]termpilot model[/] to reconfigure.\n\n"
+        f"[dim]Error: {exc}[/]"
+    )
 
 
 async def _async_interactive(model: str, resume_session_id: str | None = None) -> None:
@@ -435,12 +454,18 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
                     storage.record_user_message(result.output)
                     logger.debug("should_query: sending skill/command output to API, %d messages", len(messages))
 
-                    full_response = await _stream_response_with_tools(
-                        client, client_format, model, system_prompt, messages, tools, storage,
-                        permission_context=permission_context,
-                        session_id=storage.session_id or "",
-                        cost_tracker=cost_tracker,
-                    )
+                    try:
+                        full_response = await _stream_response_with_tools(
+                            client, client_format, model, system_prompt, messages, tools, storage,
+                            permission_context=permission_context,
+                            session_id=storage.session_id or "",
+                            cost_tracker=cost_tracker,
+                        )
+                    except Exception as api_exc:
+                        _print_connection_error(api_exc)
+                        console.print()
+                        console.rule()
+                        continue
                     messages.append({**create_assistant_message(full_response), "_timestamp": time.time()})
                     storage.record_assistant_message(full_response)
 
@@ -492,12 +517,16 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
             storage.record_user_message(user_input)
             logger.debug("sending to API: %d messages in context", len(messages))
 
-            full_response = await _stream_response_with_tools(
-                client, client_format, model, system_prompt, messages, tools, storage,
-                permission_context=permission_context,
-                session_id=storage.session_id or "",
-                cost_tracker=cost_tracker,
-            )
+            try:
+                full_response = await _stream_response_with_tools(
+                    client, client_format, model, system_prompt, messages, tools, storage,
+                    permission_context=permission_context,
+                    session_id=storage.session_id or "",
+                    cost_tracker=cost_tracker,
+                )
+            except Exception as api_exc:
+                _print_connection_error(api_exc)
+                continue
 
             messages.append({**create_assistant_message(full_response), "_timestamp": time.time()})
             storage.record_assistant_message(full_response)
@@ -581,7 +610,7 @@ def _setup_logging() -> None:
     root_logger.info("=== termpilot 启动 (session: %s) ===", session_id)
 
 
-@click.command()
+@click.group(invoke_without_command=True)
 @click.option(
     "--prompt", "-p",
     default=None,
@@ -603,9 +632,13 @@ def _setup_logging() -> None:
     default=None,
     help="指定要恢复的会话 ID",
 )
-def main(prompt: str | None, model: str | None, resume: bool, session_id: str | None) -> None:
+@click.pass_context
+def main(ctx: click.Context, prompt: str | None, model: str | None, resume: bool, session_id: str | None) -> None:
     """TermPilot — AI 编程助手。"""
+    if ctx.invoked_subcommand is not None:
+        return
     _setup_logging()
+    ensure_settings_template()
 
     resolved_model = model or get_effective_model(DEFAULT_MODEL)
     logger.debug("=== main() called: prompt=%s, model=%s, resume=%s, session_id=%s ===",
@@ -622,6 +655,13 @@ def main(prompt: str | None, model: str | None, resume: bool, session_id: str | 
         asyncio.run(_async_single_prompt(prompt, resolved_model))
     else:
         asyncio.run(_async_interactive(resolved_model, effective_session_id))
+
+
+@main.command(name="model")
+def model_cmd() -> None:
+    """Configure LLM provider and API key interactively."""
+    from termpilot.config import run_setup_wizard
+    run_setup_wizard()
 
 
 if __name__ == "__main__":

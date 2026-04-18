@@ -37,7 +37,7 @@ def _sanitize_path(path: str) -> str:
 
 def _get_projects_dir() -> Path:
     """获取 projects 目录。"""
-    return _get_config_home() / "projects"
+    return get_config_home() / "projects"
 
 
 def get_project_dir(cwd: str | None = None) -> Path:

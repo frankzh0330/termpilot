@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sys
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
@@ -38,7 +39,8 @@ from termpilot.config import (
     get_effective_api_key,
     get_effective_base_url,
     get_effective_provider,
-    get_settings_write_path,
+    get_settings_path,
+    is_placeholder_key,
 )
 from termpilot.hooks import HookEvent, dispatch_hooks
 from termpilot.permissions import (
@@ -60,29 +62,13 @@ def create_client() -> tuple[Any, str]:
 
     provider = get_effective_provider()
     api_key = get_effective_api_key(provider)
-    if not api_key:
-        settings_path = get_settings_write_path()
-        raise SystemExit(
-            "未配置 API Key。\n\n"
-            "请先创建配置文件：\n"
-            f"  {settings_path}\n\n"
-            "OpenAI 示例：\n"
-            "{\n"
-            '  "provider": "openai",\n'
-            '  "env": {\n'
-            '    "OPENAI_API_KEY": "your-api-key",\n'
-            '    "OPENAI_MODEL": "gpt-4o"\n'
-            "  }\n"
-            "}\n\n"
-            "Anthropic 示例：\n"
-            "{\n"
-            '  "provider": "anthropic",\n'
-            '  "env": {\n'
-            '    "ANTHROPIC_API_KEY": "your-api-key"\n'
-            "  }\n"
-            "}\n\n"
-            "也可以直接使用环境变量：\n"
-            "  OPENAI_API_KEY / ANTHROPIC_API_KEY / TERMPILOT_API_KEY"
+    settings_path = get_settings_path()
+
+    if not api_key or is_placeholder_key(api_key):
+        sys.exit(
+            f"API key not configured.\n"
+            f"Edit {settings_path} and replace the placeholder with your real key.\n"
+            f"Then run termpilot again."
         )
 
     base_url = get_effective_base_url(provider)
@@ -91,7 +77,7 @@ def create_client() -> tuple[Any, str]:
         try:
             import anthropic
         except ImportError:
-            raise SystemExit(
+            sys.exit(
                 "Anthropic SDK not installed. "
                 "Run: pip install \"termpilot[anthropic]\""
             )
@@ -101,7 +87,11 @@ def create_client() -> tuple[Any, str]:
         )
         return client, "anthropic"
 
-    from openai import AsyncOpenAI
+    try:
+        from openai import AsyncOpenAI
+    except ImportError:
+        sys.exit("OpenAI SDK not installed. Run: pip install termpilot")
+
     client = AsyncOpenAI(
         api_key=api_key,
         base_url=base_url,

@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
-from termpilot.config import get_settings_path, get_settings_write_path
+from termpilot.config import get_settings_path
 
 logger = logging.getLogger(__name__)
 
@@ -711,7 +711,7 @@ def _read_settings() -> dict:
 
 def _write_settings(settings: dict) -> None:
     """写入 settings.json。"""
-    path = get_settings_write_path()
+    path = get_settings_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
