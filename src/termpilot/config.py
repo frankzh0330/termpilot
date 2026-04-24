@@ -39,8 +39,8 @@ _PROVIDER_ALIASES = {
     "openai-compatible": "openai_compatible",
     "compatible": "openai_compatible",
     "custom": "openai_compatible",
-    "zhipu": "openai_compatible",
-    "glm": "openai_compatible",
+    "zhipu": "zhipu",
+    "glm": "zhipu",
     "deepseek": "openai_compatible",
     "qwen": "openai_compatible",
     "dashscope": "openai_compatible",
@@ -95,7 +95,7 @@ _PROVIDERS: dict[str, dict[str, Any]] = {
     "Zhipu GLM": {
         "provider": "zhipu",
         "env_key": "ZHIPU_API_KEY",
-        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "base_url": "https://open.bigmodel.cn/api/anthropic",
         "default_model": "glm-5.1",
     },
     "DeepSeek": {
