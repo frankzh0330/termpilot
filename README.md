@@ -230,6 +230,7 @@ For a deeper module breakdown, see [ARCHITECTURE.md](ARCHITECTURE.md).
 - [docs/conventions.md](docs/conventions.md): naming and organization conventions
 - [docs/hooks.md](docs/hooks.md): hook design and behavior
 - [docs/compact.md](docs/compact.md): compaction strategy
+- [docs/harness-engineering.md](docs/harness-engineering.md): evaluation harness, verifier, and trajectory plan
 - [docs/mcp_skills.md](docs/mcp_skills.md): MCP, skills, and commands
 - [docs/task-tool.md](docs/task-tool.md): task management, persistence, and dependency graph
 - [docs/system_prompt_sections.md](docs/system_prompt_sections.md): system prompt sections
