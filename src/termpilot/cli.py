@@ -466,7 +466,6 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
     from prompt_toolkit import PromptSession
     from prompt_toolkit.history import FileHistory
     from prompt_toolkit.key_binding import KeyBindings
-    from prompt_toolkit.keys import Keys
     from prompt_toolkit.styles import Style as PtStyle
 
     slash_completer = SlashCompleter()
@@ -476,25 +475,34 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
         "plan-prompt": "bold #ff8800",
     })
 
-    # Plan mode 状态（通过闭包在键绑定和循环之间共享）
-    plan_mode_active = False
-
-    plan_bindings = KeyBindings()
-
-    @plan_bindings.add(Keys.BackTab, eager=True)
-    def _toggle_plan_mode(event):
-        nonlocal plan_mode_active
-        plan_mode_active = not plan_mode_active
-        if plan_mode_active:
-            print("[Plan Mode ON — read-only]")
-        else:
-            print("[Plan Mode OFF — full access]")
-        event.app.invalidate()
-
     def _get_prompt_message():
-        if plan_mode_active:
+        if permission_context.mode == PermissionMode.PLAN:
             return [("class:plan-prompt", "PLAN> ")]
         return [("class:prompt", "> ")]
+
+    def _mode_toolbar():
+        mode = permission_context.mode.value
+        labels = {
+            "default": " Default ",
+            "plan": " Plan Mode (read-only) ",
+            "acceptEdits": " Accept Edits ",
+        }
+        styles = {
+            "default": "bg:#ansidarkgray fg:#ansiwhite",
+            "plan": "bg:#ansiyellow fg:#ansiblack",
+            "acceptEdits": "bg:#ansigreen fg:#ansiblack",
+        }
+        return [(styles.get(mode, ""), labels.get(mode, f" {mode} "))]
+
+    kb = KeyBindings()
+
+    @kb.add("s-tab")
+    def _cycle_mode(event):
+        from termpilot.permissions import cycle_permission_mode
+        nonlocal permission_context
+        next_mode = cycle_permission_mode(permission_context)
+        permission_context.mode = next_mode
+        event.app.invalidate()
 
     history_file = get_config_home() / "prompt_history"
     pt_session = PromptSession(
@@ -504,11 +512,19 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
         style=pt_style,
         history=FileHistory(str(history_file)),
         enable_history_search=True,
-        key_bindings=plan_bindings,
+        key_bindings=kb,
+        bottom_toolbar=_mode_toolbar,
     )
 
     while True:
         try:
+            # Show mode in prompt prefix if not default
+            if permission_context.mode.value != "default":
+                mode_tags = {"plan": "[plan]", "acceptEdits": "[edits]"}
+                tag = mode_tags.get(permission_context.mode.value, "")
+                pt_session.message = [("class:prompt", f"{tag}> ")]
+            else:
+                pt_session.message = [("class:prompt", "> ")]
             console.print()
             user_input = await pt_session.prompt_async()
 
@@ -623,19 +639,24 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
             else:
                 messages.append(create_user_message(effective_input))
             storage.record_user_message(user_input)
+
+            # Plan mode: inject reminder so model self-restricts instead of
+            # attempting writes and getting blocked by the permission system.
+            if permission_context.mode.value == "plan":
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "<system-reminder>"
+                        "You are in plan mode (read-only). Do NOT attempt to write, edit, "
+                        "or modify any files. Only use read-only tools: read_file, glob, grep, "
+                        "bash (read-only only). When ready, call exit_plan_mode with your plan."
+                        "</system-reminder>"
+                    ),
+                })
+
             logger.debug("sending to API: %d messages in context", len(messages))
 
-            # Plan mode: 切换为只读权限
-            if plan_mode_active:
-                effective_permission = PermissionContext(
-                    mode=PermissionMode.PLAN,
-                    allow_rules=[],
-                    deny_rules=[],
-                    ask_rules=[],
-                    working_directory=permission_context.working_directory,
-                )
-            else:
-                effective_permission = permission_context
+            effective_permission = permission_context
 
             try:
                 full_response = await _stream_response_with_tools(
