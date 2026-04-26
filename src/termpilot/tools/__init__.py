@@ -91,14 +91,6 @@ def get_all_tools(mcp_manager: Any | None = None) -> list[Tool]:
     return tools
 
 
-def get_tools_api_schemas(tools: list[Tool]) -> list[dict]:
-    """生成 Anthropic API 的 tools 参数。
-
-    对应 TS 中将 Tool[] 转换为 API 请求中的 tools 字段。
-    """
-    return [tool_to_api_schema(t) for t in tools]
-
-
 def find_tool_by_name(tools: list[Tool], name: str) -> Tool | None:
     """按名称查找工具。对应 TS Tool.ts:358 findToolByName。"""
     for tool in tools:

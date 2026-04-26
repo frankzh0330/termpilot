@@ -133,19 +133,6 @@ def get_next_available_task(owner: str = "") -> Task | None:
     return None
 
 
-def claim_task(task_id: str, owner: str) -> bool:
-    """Claim a task for execution."""
-    tasks = _get_tasks()
-    task = tasks.get(task_id)
-    if not task or task.status != "pending":
-        return False
-    task.owner = owner
-    task.status = "in_progress"
-    task.updated_at = time.time()
-    _save_tasks_to_disk()
-    return True
-
-
 # ── TaskCreate ────────────────────────────────────────
 
 class TaskCreateTool:

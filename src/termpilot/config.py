@@ -451,62 +451,6 @@ def save_model_selection(model: str, raw_provider: str | None = None) -> None:
     )
 
 
-def run_model_picker() -> dict[str, Any]:
-    """为当前 provider 选择模型。
-
-    返回:
-      {"changed": bool, "model": str, "provider": str}
-    """
-    import questionary
-
-    raw_provider = _get_raw_provider()
-    provider_label, _ = _find_provider_info(raw_provider)
-    current_model = get_effective_model()
-
-    presets = list(_MODEL_PRESETS.get(raw_provider, []))
-
-    # 构建 choice 列表：presets 原样展示，cursor 通过 default 定位
-    choices: list[Any] = []
-    seen: set[str] = set()
-
-    def add_choice(title: str, value: str) -> None:
-        if value in seen:
-            return
-        seen.add(value)
-        choices.append(questionary.Choice(title, value=value))
-
-    # 如果当前模型不在 presets 中，加到顶部
-    if current_model not in presets:
-        add_choice(current_model, current_model)
-
-    for preset in presets:
-        add_choice(preset, preset)
-
-    choices.append(questionary.Choice("Custom model…", value="__custom__"))
-
-    choice = _esc_ask(questionary.select(
-        f"Select model for {provider_label or raw_provider}:",
-        choices=choices,
-        default=current_model,
-        use_shortcuts=False,
-    ))
-
-    if not choice:
-        return {"changed": False, "model": current_model, "provider": raw_provider}
-
-    if choice == "__custom__":
-        custom_model = _esc_ask(questionary.text(
-            "Enter model name:",
-            default=current_model,
-        ))
-        if not custom_model:
-            return {"changed": False, "model": current_model, "provider": raw_provider}
-        choice = custom_model
-
-    save_model_selection(choice, raw_provider=raw_provider)
-    return {"changed": choice != current_model, "model": choice, "provider": raw_provider}
-
-
 def is_placeholder_key(key: str | None) -> bool:
     """判断 API key 是否为占位符或空值。"""
     if not key or not key.strip():
