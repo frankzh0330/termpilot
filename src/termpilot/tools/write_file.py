@@ -62,11 +62,12 @@ class WriteFileTool:
         file_path = kwargs.get("file_path", "")
         content = kwargs.get("content", "")
 
-        path = Path(file_path).expanduser()
+        from termpilot.workspace import map_path_to_active_workspace
+        path = map_path_to_active_workspace(file_path)
 
         # 修改前保存快照（用于 /undo 回退）
         from termpilot.undo import save_snapshot
-        save_snapshot(file_path, operation="write_file")
+        save_snapshot(str(path), operation="write_file")
 
         def _write() -> str:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -80,7 +81,7 @@ class WriteFileTool:
                     logger.info("memory write: %s (%d chars)", file_path, len(content))
             except Exception:
                 pass
-            return f"已写入: {file_path} ({line_count} 行, {len(content)} 字符)"
+            return f"已写入: {path} ({line_count} 行, {len(content)} 字符)"
 
         try:
             return await asyncio.to_thread(_write)

@@ -349,6 +349,124 @@ async def _cmd_details(args: str, ctx: dict) -> CommandResult:
     return CommandResult(output=ui.format_tool_details(token))
 
 
+async def _cmd_trial(args: str, ctx: dict) -> CommandResult:
+    """Manage the active trial workspace."""
+    from termpilot.workspace import (
+        TrialWorkspaceManager,
+        get_active_trial_workspace,
+        get_trial_workspace_config,
+        set_active_trial_workspace,
+    )
+
+    parts = args.strip().split(None, 1)
+    action = parts[0].lower() if parts else "status"
+    rest = parts[1] if len(parts) > 1 else ""
+    config = get_trial_workspace_config()
+    manager = TrialWorkspaceManager(config)
+
+    if action in {"start", "new", "create"}:
+        backend = "copy" if "--copy" in rest else None
+        purpose = rest.replace("--copy", "").strip()
+        workspace = manager.create(purpose=purpose, backend=backend)
+        set_active_trial_workspace(workspace)
+        return CommandResult(output=(
+            "Trial workspace started.\n"
+            f"  id: {workspace.id}\n"
+            f"  backend: {workspace.backend}\n"
+            f"  source: {workspace.source_cwd}\n"
+            f"  workspace: {workspace.workspace_path}\n\n"
+            "Future tool reads/writes and bash commands now run against this trial workspace."
+        ))
+
+    if action in {"status", ""}:
+        workspace = get_active_trial_workspace()
+        if workspace is None:
+            return CommandResult(output=(
+                "No active trial workspace.\n"
+                "Use `/trial start` to create one, or `/trial start --copy` to force the copy backend."
+            ))
+        return CommandResult(output=(
+            "Active trial workspace:\n"
+            f"  id: {workspace.id}\n"
+            f"  backend: {workspace.backend}\n"
+            f"  source: {workspace.source_cwd}\n"
+            f"  workspace: {workspace.workspace_path}"
+        ))
+
+    if action == "list":
+        workspaces = manager.list()
+        if not workspaces:
+            return CommandResult(output="No trial workspaces found.")
+        lines = ["Trial workspaces:"]
+        active = get_active_trial_workspace()
+        for workspace in workspaces:
+            marker = "*" if active and active.id == workspace.id else " "
+            lines.append(
+                f"{marker} {workspace.id} [{workspace.backend}] {workspace.state} "
+                f"{workspace.workspace_path}"
+            )
+        return CommandResult(output="\n".join(lines))
+
+    if action == "diff":
+        workspace = get_active_trial_workspace()
+        if workspace is None:
+            return CommandResult(output="No active trial workspace.")
+        diff = manager.diff(workspace.id)
+        output = diff.summary()
+        if diff.unified_diff:
+            output += "\n\n```diff\n" + diff.unified_diff[:20_000] + "\n```"
+        return CommandResult(output=output)
+
+    if action == "apply":
+        workspace = get_active_trial_workspace()
+        if workspace is None:
+            return CommandResult(output="No active trial workspace.")
+        diff = manager.apply(workspace.id)
+        set_active_trial_workspace(None)
+        return CommandResult(output=(
+            "Applied trial workspace changes to source project.\n"
+            f"{diff.changed_files} files changed, +{diff.additions}/-{diff.deletions}.\n"
+            "Trial mode is now inactive. Use `/trial discard <id>` to remove the workspace copy."
+        ))
+
+    if action in {"discard", "delete", "rm"}:
+        active = get_active_trial_workspace()
+        workspace_id = rest.strip() or (active.id if active else "")
+        if not workspace_id:
+            return CommandResult(output="No trial workspace id provided.")
+        discarded = manager.discard(workspace_id)
+        if active and active.id == workspace_id:
+            set_active_trial_workspace(None)
+        if not discarded:
+            return CommandResult(output=f"Trial workspace not found: {workspace_id}")
+        return CommandResult(output=f"Discarded trial workspace: {workspace_id}")
+
+    if action in {"stop", "deactivate", "off"}:
+        workspace = get_active_trial_workspace()
+        set_active_trial_workspace(None)
+        if workspace is None:
+            return CommandResult(output="Trial mode was not active.")
+        return CommandResult(output=f"Trial mode stopped. Workspace kept at: {workspace.workspace_path}")
+
+    if action == "config":
+        lines = [
+            "Trial workspace config:",
+            f"  enabled: {config.enabled}",
+            f"  backend: {config.backend}",
+            f"  root: {config.root}",
+            f"  preferGitWorktree: {config.prefer_git_worktree}",
+            f"  keepFailed: {config.keep_failed}",
+            f"  ttlHours: {config.ttl_hours}",
+        ]
+        return CommandResult(output="\n".join(lines))
+
+    return CommandResult(output=(
+        "Unknown trial action.\n"
+        "Usage: /trial start [--copy] | /trial status | /trial diff | "
+        "/trial apply | /trial discard [id] | /trial stop | /trial list"
+    ))
+
+
 async def _cmd_skills(args: str, ctx: dict) -> CommandResult:
     """列出可用 skills。"""
     from termpilot.skills import get_all_skills
@@ -733,6 +851,12 @@ def register_builtin_commands() -> None:
         description="Show full output for a recent tool result",
         handler=_cmd_details,
         argument_hint="[last|n]",
+    ))
+    register_command(Command(
+        name="trial",
+        description="Manage an isolated trial workspace",
+        handler=_cmd_trial,
+        argument_hint="start|status|diff|apply|discard|stop",
     ))
     register_command(Command(
         name="skills",

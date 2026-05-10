@@ -16,6 +16,8 @@ It is already usable for day-to-day coding tasks and continues to evolve toward 
 - Tool-use loop: the model can call tools repeatedly until the task is complete
 - Concurrent tool execution for safe tools, serialized execution for unsafe tools
 - Permission system with five modes, persistent rules, path validation, and dangerous-command detection
+- Optional sandbox runtime for bash commands with macOS `sandbox-exec` / Linux `bwrap` adapters and permission auto-allow when isolation is active
+- Trial workspace mode for isolated edits, diff review, and explicit apply/discard before touching the source project
 - Hook system for shell-command hooks around prompts and tool calls
 - Automatic `TERMPILOT.md` loading for project-level persistent instructions
 - Context compaction for long conversations
@@ -35,7 +37,7 @@ It is already usable for day-to-day coding tasks and continues to evolve toward 
 | Read file | `read_file` | Read file contents with line numbers, `offset`, and `limit` | ✅ | ❌ |
 | Write file | `write_file` | Create or overwrite files and auto-create parent directories | ❌ | ✅ |
 | Edit file | `edit_file` | Exact string replacement with optional `replace_all` | ❌ | ✅ |
-| Run command | `bash` | Execute shell commands with timeout support | ❌ | ✅ |
+| Run command | `bash` | Execute shell commands with timeout cleanup, cwd tracking, and optional sandbox wrapping | ❌ | ✅ |
 | File search | `glob` | Search files using glob patterns | ✅ | ❌ |
 | Content search | `grep` | Search file contents with regular expressions | ✅ | ❌ |
 | Sub-agent | `agent` | Delegate work to Explore, Plan, Verification, general-purpose, custom agents, or a batch of up to 3 independent tasks | ✅ | ❌ |
@@ -137,6 +139,7 @@ termpilot -s <session-id>
 | `/mcp` | Show MCP server status |
 | `/undo` | Restore the previous file snapshot |
 | `/rewind` | Rewind conversation to a previous turn and continue from there |
+| `/trial start`, `/trial diff`, `/trial apply`, `/trial discard` | Work in an isolated trial workspace, review changes, then apply or discard them |
 | `/commit` | Draft a commit flow with AI-generated commit message guidance |
 | `/init` | Generate a project instruction seed for the current project |
 | `/exit`, `/quit` | Exit the program |
@@ -158,6 +161,18 @@ Each spawned sub-agent is also registered as a persistent `AgentTask` with an `a
 | Custom | User-defined agents loaded from `~/.termpilot/agents/*.md` with frontmatter metadata |
 
 See [Task Delegation and Sub-Agent Routing](docs/task-delegation.md) for the design background and implementation details.
+
+## Sandbox Runtime
+
+TermPilot can optionally wrap `bash` commands with an operating-system sandbox. When `sandbox.enabled` is true and a backend is available, TermPilot can run shell commands through macOS `sandbox-exec` or Linux `bwrap`; if `autoAllowBashIfSandboxed` is enabled, sandboxed bash calls can skip the usual interactive confirmation.
+
+The sandbox layer is a v1 runtime boundary, not a complete security product. It is designed as a small, UI-independent module so it can later move into a standalone runtime service. See [Sandbox Runtime](docs/sandbox-runtime.md) for configuration, flow, testing steps, and current limitations.
+
+## Trial Workspace
+
+TermPilot can run coding work in an isolated trial workspace before applying changes to the source project. Use `/trial start` to create a workspace, let the agent edit and run commands there, inspect changes with `/trial diff`, then either apply them with `/trial apply` or remove the workspace with `/trial discard`.
+
+The current implementation supports `git worktree` for Git repositories and a portable copy backend for manual testing or dirty working trees. See [Trial Workspace Runtime](docs/trial-workspace.md) for the flow, commands, settings, and limitations.
 
 ### Custom Agents
 
@@ -204,6 +219,8 @@ src/termpilot/
 ├── skills.py         # Skill loading and registry
 ├── commands.py       # Slash commands
 ├── termpilotmd.py    # TERMPILOT.md loading
+├── sandbox/          # Sandbox config, backend adapters, and runtime decisions
+├── workspace/        # Trial workspace runtime, diff, apply, and path mapping
 ├── mcp/              # MCP client, transport, and config
 └── tools/            # Core tools, web tools, advanced tools, MCP adapters
 ```
@@ -229,11 +246,15 @@ For a deeper module breakdown, see [ARCHITECTURE.md](ARCHITECTURE.md).
 - [docs/hooks.md](docs/hooks.md): hook design and behavior
 - [docs/compact.md](docs/compact.md): compaction strategy
 - [docs/message-queue.md](docs/message-queue.md): interactive queue, drain loop, interrupts, and prompt handling
+- [docs/sandbox-runtime.md](docs/sandbox-runtime.md): bash sandbox runtime, permission auto-allow, and backend decisions
+- [docs/trial-workspace.md](docs/trial-workspace.md): isolated trial workspace, diff/apply flow, and commands
 - [docs/mcp_skills.md](docs/mcp_skills.md): MCP, skills, and commands
 - [docs/task-tool.md](docs/task-tool.md): task management, persistence, and dependency graph
 - [docs/task-delegation.md](docs/task-delegation.md): task delegation and sub-agent routing
 - [docs/system_prompt_sections.md](docs/system_prompt_sections.md): system prompt sections
 - [docs/messages_attachments.md](docs/messages_attachments.md): message formats and file attachments
+- [docs/test_cases/sandbox/sandbox_test_report.md](docs/test_cases/sandbox/sandbox_test_report.md): interactive sandbox behavior test report
+- [docs/test_cases/subagent_tasks/agent_task_test_report_en.md](docs/test_cases/subagent_tasks/agent_task_test_report_en.md): sub-agent runtime, batch delegation, and follow-up test report
 
 ## Development Status
 

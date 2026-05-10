@@ -16,6 +16,8 @@
 - 工具调用循环：模型可以反复调用工具，直到任务完成
 - 并发工具执行：安全工具并行执行，不安全工具串行执行
 - 权限系统：五种模式、持久化规则、路径验证、危险命令检测
+- 可选 bash sandbox runtime：支持 macOS `sandbox-exec` / Linux `bwrap` adapter，并可在隔离生效时自动放行权限
+- Trial Workspace 模式：在隔离工作区中编辑、查看 diff，并由用户明确 apply/discard 后才影响源项目
 - Hook 系统：围绕 prompt 和工具调用的 shell 命令钩子
 - 自动加载 `TERMPILOT.md` 项目级持久化指令
 - 长对话上下文压缩
@@ -35,7 +37,7 @@
 | 读取文件 | `read_file` | 读取文件内容，支持行号、`offset` 和 `limit` | ✅ | ❌ |
 | 写入文件 | `write_file` | 创建或覆盖文件，自动创建父目录 | ❌ | ✅ |
 | 编辑文件 | `edit_file` | 精确字符串替换，支持 `replace_all` | ❌ | ✅ |
-| 执行命令 | `bash` | 执行 shell 命令，支持超时 | ❌ | ✅ |
+| 执行命令 | `bash` | 执行 shell 命令，支持超时清理、cwd 跟踪和可选 sandbox 包装 | ❌ | ✅ |
 | 文件搜索 | `glob` | 使用 glob 模式搜索文件 | ✅ | ❌ |
 | 内容搜索 | `grep` | 使用正则表达式搜索文件内容 | ✅ | ❌ |
 | 子代理 | `agent` | 将任务委派给 Explore、Plan、Verification、general-purpose、自定义代理，或一次委派最多 3 个独立任务 | ✅ | ❌ |
@@ -137,6 +139,7 @@ termpilot -s <session-id>
 | `/mcp` | 显示 MCP 服务器状态 |
 | `/undo` | 恢复上一次文件快照 |
 | `/rewind` | 回退对话到历史某个 turn，从该点继续 |
+| `/trial start`、`/trial diff`、`/trial apply`、`/trial discard` | 在隔离 trial workspace 中工作，查看变更后再应用或丢弃 |
 | `/commit` | AI 生成 git commit |
 | `/init` | 为当前项目生成指令模板 |
 | `/exit`、`/quit` | 退出程序 |
@@ -158,6 +161,18 @@ TermPilot 保留公开工具名 `agent`，但语义更接近 `delegate_task`：�
 | 自定义 | 从 `~/.termpilot/agents/*.md` 加载的用户自定义代理 |
 
 设计背景和实现细节见 [任务委派与子代理路由](docs/task-delegation.zh-CN.md)。
+
+## Sandbox Runtime
+
+TermPilot 可以选择性地用操作系统 sandbox 包装 `bash` 命令。当 `sandbox.enabled` 为 true 且 backend 可用时，TermPilot 可以通过 macOS `sandbox-exec` 或 Linux `bwrap` 执行 shell 命令；如果开启 `autoAllowBashIfSandboxed`，真正被 sandbox 包住的 bash 调用可以跳过常规交互式权限确认。
+
+sandbox 层目前是 v1 runtime 边界，不是完整安全产品。它被设计成小而独立、与 UI 无关的模块，后续可以抽离成独立 runtime service。配置、流程、测试步骤和当前限制见 [Sandbox Runtime](docs/sandbox-runtime.zh-CN.md)。
+
+## Trial Workspace
+
+TermPilot 可以先在隔离 trial workspace 中执行编码任务，再由用户决定是否把变更应用回源项目。使用 `/trial start` 创建工作区，让 agent 在其中编辑和运行命令，用 `/trial diff` 查看变更，然后用 `/trial apply` 应用，或用 `/trial discard` 丢弃。
+
+当前实现支持 Git 仓库的 `git worktree` backend，也支持便于手动测试或脏工作区使用的 copy backend。流程、命令、配置和限制见 [Trial Workspace Runtime](docs/trial-workspace.zh-CN.md)。
 
 ### 自定义代理
 
@@ -204,6 +219,8 @@ src/termpilot/
 ├── skills.py         # Skill 加载和注册
 ├── commands.py       # Slash 命令
 ├── termpilotmd.py    # TERMPILOT.md 加载
+├── sandbox/          # Sandbox 配置、backend adapter 和 runtime 决策
+├── workspace/        # Trial workspace runtime、diff、apply 和路径映射
 ├── mcp/              # MCP 客户端、传输和配置
 └── tools/            # 核心工具、Web 工具、高级工具、MCP 适配器
 ```
@@ -229,11 +246,15 @@ src/termpilot/
 - [docs/hooks.md](docs/hooks.md)：Hook 设计和行为
 - [docs/compact.md](docs/compact.md)：压缩策略
 - [docs/message-queue.md](docs/message-queue.md)：交互队列、drain loop、中断和 prompt 处理
+- [docs/sandbox-runtime.zh-CN.md](docs/sandbox-runtime.zh-CN.md)：bash sandbox runtime、权限自动放行和 backend 决策
+- [docs/trial-workspace.zh-CN.md](docs/trial-workspace.zh-CN.md)：隔离 trial workspace、diff/apply 流程和命令
 - [docs/mcp_skills.md](docs/mcp_skills.md)：MCP、Skills 和命令
 - [docs/task-tool.md](docs/task-tool.md)：任务管理、持久化和依赖图
 - [docs/task-delegation.md](docs/task-delegation.md)：任务委派与子代理路由
 - [docs/system_prompt_sections.md](docs/system_prompt_sections.md)：System Prompt 各 Section
 - [docs/messages_attachments.md](docs/messages_attachments.md)：消息格式和文件附件
+- [docs/test_cases/sandbox/sandbox_test_report.md](docs/test_cases/sandbox/sandbox_test_report.md)：sandbox 交互行为测试报告
+- [docs/test_cases/subagent_tasks/agent_task_test_report.md](docs/test_cases/subagent_tasks/agent_task_test_report.md)：子代理 runtime、批量委派和 follow-up 测试报告
 
 ## 开发状态
 

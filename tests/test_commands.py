@@ -112,6 +112,50 @@ class TestDispatchCommands:
         assert "not initialized" in result.output.lower()
 
     @pytest.mark.asyncio
+    async def test_trial_start_status_diff_apply_discard(self, tmp_path, monkeypatch):
+        from termpilot.workspace.runtime import set_active_trial_workspace
+
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "app.py").write_text("old\n", encoding="utf-8")
+        root = tmp_path / "trials"
+
+        monkeypatch.chdir(source)
+        monkeypatch.setattr(
+            "termpilot.workspace.config.get_settings",
+            lambda: {
+                "trialWorkspace": {
+                    "backend": "copy",
+                    "root": str(root),
+                    "preferGitWorktree": False,
+                }
+            },
+        )
+        set_active_trial_workspace(None)
+
+        start = await dispatch_command("trial", "start --copy test")
+        assert "Trial workspace started" in start.output
+
+        status = await dispatch_command("trial", "status")
+        assert "Active trial workspace" in status.output
+
+        from termpilot.workspace.runtime import get_active_trial_workspace
+        active = get_active_trial_workspace()
+        assert active is not None
+        trial_app = tmp_path / "trials" / active.id / "app.py"
+        trial_app.write_text("new\n", encoding="utf-8")
+
+        diff = await dispatch_command("trial", "diff")
+        assert "app.py" in diff.output
+
+        apply = await dispatch_command("trial", "apply")
+        assert "Applied trial workspace changes" in apply.output
+        assert (source / "app.py").read_text(encoding="utf-8") == "new\n"
+
+        discard = await dispatch_command("trial", f"discard {active.id}")
+        assert "Discarded trial workspace" in discard.output
+
+    @pytest.mark.asyncio
     async def test_model(self, monkeypatch):
         called = {"wizard": False, "refresh": False}
         call_count = {"n": 0}

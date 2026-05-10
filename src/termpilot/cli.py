@@ -782,6 +782,21 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
                     "</system-reminder>"
                 ),
             })
+        from termpilot.workspace import get_active_trial_workspace
+        active_trial_workspace = get_active_trial_workspace()
+        if active_trial_workspace is not None:
+            messages.append({
+                "role": "user",
+                "content": (
+                    "<system-reminder>"
+                    "Trial workspace mode is active. Tool reads, writes, edits, searches, and bash commands "
+                    "are redirected to an isolated trial workspace, not directly to the source project. "
+                    f"Source project: {active_trial_workspace.source_cwd}. "
+                    f"Trial workspace: {active_trial_workspace.workspace_path}. "
+                    "Tell the user to review with /trial diff and apply with /trial apply when appropriate."
+                    "</system-reminder>"
+                ),
+            })
 
         logger.debug("sending to API: %d messages in context", len(messages))
 

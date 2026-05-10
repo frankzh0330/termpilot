@@ -21,7 +21,8 @@
 ├──────────────────────────────────────────────────────┤
 │                 Service Layer                        │
 │  permissions.py · hooks.py · compact.py · undo.py   │
-│  session.py · tool_result_storage.py                 │
+│  session.py · tool_result_storage.py · sandbox/*     │
+│  workspace/*                                         │
 ├──────────────────────────────────────────────────────┤
 │                 Context Layer                        │
 │  context.py · config.py · messages.py                │
@@ -43,6 +44,8 @@ cli.py
       ├─ permissions.py / hooks.py / compact.py / undo.py
       ├─ context.py / config.py / messages.py / session.py
       ├─ attachments.py / tool_result_storage.py / termpilotmd.py / skills.py
+      ├─ sandbox/*
+      ├─ workspace/*
       └─ tools/*.py / mcp/*
 ```
 
@@ -83,7 +86,25 @@ cli.py
 - 从 settings 中评估 allow / deny / ask 规则
 - 校验敏感路径
 - 检测危险 bash 命令
+- bash 命中 ask rule 时，只有 sandbox 已启用、命令未被 excluded、且 backend 可用，才让 ask rule 让位并自动允许
 - 生成供 `api.py` / `cli.py` 使用的 `PermissionResult`
+
+### `sandbox/*`
+
+- 将 sandbox settings 读取为 `SandboxConfig`
+- 检测 macOS `sandbox-exec`、Linux `bwrap` 等平台 backend
+- 在 bash 执行前生成 `SandboxDecision`
+- sandbox 生效时，用选中的 backend 包装 shell 命令
+- 保持与 UI 无关，方便后续抽离为独立 runtime service
+
+### `workspace/*`
+
+- 将 trial workspace settings 读取为 `TrialWorkspaceConfig`
+- 通过 `git worktree` 或 portable copy backend 创建隔离工作区
+- 记录 workspace metadata 和当前 active workspace 状态
+- 生成可 review 的 diff，并在用户确认后应用回源项目
+- 将源项目路径映射到 active trial workspace，供文件、搜索和 bash 工具使用
+- 保持与 UI 无关，方便后续抽离为独立 workspace/runtime service
 
 ### `hooks.py`
 
@@ -135,6 +156,7 @@ cli.py
 - 核心文件/命令/搜索工具
 - 高级工作流工具：ask-user、agent、task、plan、notebook
 - 任务管理：`task_create`、`task_update`、`task_list`、`task_get`（详见 [docs/task-tool.zh-CN.md](docs/task-tool.zh-CN.md)）
+- Trial workspace 命令：`/trial start`、`/trial status`、`/trial diff`、`/trial apply`、`/trial discard`
 - Web 工具：`web_fetch`、`web_search`
 - MCP 动态工具和资源读取工具
 - Skill 展开工具
@@ -163,6 +185,8 @@ cli.py
         ├─ 收集 tool_use blocks
         ├─ 执行 PreToolUse hooks
         ├─ 权限检查
+        ├─ 询问 sandbox runtime bash 是否可被隔离
+        ├─ 如果启用了 active trial workspace，则映射工具路径
         ├─ 执行工具
         ├─ 执行 PostToolUse hooks
         ├─ 超大工具结果持久化或截断
@@ -181,6 +205,8 @@ Stop hook
 ~/.termpilot/settings.json
   ├─ config.py           → model / API key / base URL / env
   ├─ permissions.py      → 权限模式与规则
+  ├─ sandbox/config.py   → bash sandbox runtime 策略
+  ├─ workspace/config.py → trial workspace 策略
   ├─ hooks.py            → hook matchers
   └─ mcp/config.py       → MCP server 定义
 ```

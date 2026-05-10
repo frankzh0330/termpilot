@@ -60,7 +60,8 @@ class GlobTool:
         if not pattern:
             return "错误：pattern 不能为空"
 
-        root = Path(search_path).expanduser()
+        from termpilot.workspace import map_path_to_active_workspace
+        root = map_path_to_active_workspace(search_path)
         if not root.exists():
             return f"错误：目录不存在: {search_path}"
 
