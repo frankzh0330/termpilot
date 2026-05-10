@@ -46,7 +46,8 @@ class ListDirTool:
     async def call(self, **kwargs: Any) -> str:
         raw_path = kwargs.get("path") or "."
         max_entries = int(kwargs.get("max_entries") or 20)
-        path = Path(raw_path).expanduser()
+        from termpilot.workspace import map_path_to_active_workspace
+        path = map_path_to_active_workspace(raw_path)
 
         if not path.exists():
             return f"错误：目录不存在: {raw_path}"

@@ -21,7 +21,8 @@ This document summarizes the current architecture of `termpilot`, the responsibi
 ├──────────────────────────────────────────────────────┤
 │                 Service Layer                        │
 │  permissions.py · hooks.py · compact.py · undo.py   │
-│  session.py · tool_result_storage.py                 │
+│  session.py · tool_result_storage.py · sandbox/*     │
+│  workspace/*                                         │
 ├──────────────────────────────────────────────────────┤
 │                 Context Layer                        │
 │  context.py · config.py · messages.py                │
@@ -43,6 +44,8 @@ cli.py
       ├─ permissions.py / hooks.py / compact.py / undo.py
       ├─ context.py / config.py / messages.py / session.py
       ├─ attachments.py / tool_result_storage.py / termpilotmd.py / skills.py
+      ├─ sandbox/*
+      ├─ workspace/*
       └─ tools/*.py / mcp/*
 ```
 
@@ -83,7 +86,25 @@ Guidelines:
 - Evaluates allow/deny/ask rules from settings
 - Validates sensitive file paths
 - Classifies dangerous bash commands
+- Lets bash ask rules yield only when sandboxing is enabled, the command is not excluded, and a backend is available
 - Produces `PermissionResult` objects consumed by `api.py` and `cli.py`
+
+### `sandbox/*`
+
+- Loads sandbox settings into `SandboxConfig`
+- Detects platform backends such as macOS `sandbox-exec` and Linux `bwrap`
+- Produces `SandboxDecision` objects before bash execution
+- Wraps shell commands with the selected backend when sandboxing is active
+- Stays UI-independent so it can later be extracted into a standalone runtime service
+
+### `workspace/*`
+
+- Loads trial workspace settings into `TrialWorkspaceConfig`
+- Creates isolated workspaces with `git worktree` or a portable copy backend
+- Tracks workspace metadata and active workspace state
+- Builds reviewable diffs and applies accepted changes back to the source project
+- Maps source-project paths into the active trial workspace for file, search, and bash tools
+- Stays UI-independent so it can later be extracted into a standalone workspace/runtime service
 
 ### `hooks.py`
 
@@ -135,9 +156,21 @@ Current tool families:
 - Core file/shell/search tools
 - Advanced workflow tools: ask-user, agent, task, plan, notebook
 - Task management: `task_create`, `task_update`, `task_list`, `task_get` (see [docs/task-tool.md](docs/task-tool.md))
+- Trial workspace commands: `/trial start`, `/trial status`, `/trial diff`, `/trial apply`, `/trial discard`
 - Web tools: `web_fetch`, `web_search`
 - MCP dynamic tools and resource readers
 - Skill expansion tool
+
+## Planned Evaluation Harness
+
+The evaluation harness is planned as a sidecar engineering layer, not part of
+the interactive runtime path. It will drive TermPilot through stable CLI/API
+entry points, isolate task workspaces, record trajectories, run deterministic
+verifiers, and produce reports for regression tracking.
+
+This keeps the production agent loop focused on user interaction while giving
+the project a repeatable way to measure task completion quality. The detailed
+plan is documented in [docs/harness-engineering.md](docs/harness-engineering.md).
 
 ## Runtime Flow
 
@@ -154,6 +187,8 @@ cli.py
         ├─ collect tool_use blocks
         ├─ run PreToolUse hooks
         ├─ check permissions
+        ├─ ask sandbox runtime whether bash can be isolated
+        ├─ map tool paths into active trial workspace if enabled
         ├─ execute tools
         ├─ run PostToolUse hooks
         ├─ store/truncate tool results if needed
@@ -172,6 +207,8 @@ Stop hook
 ~/.termpilot/settings.json
   ├─ config.py           → model / API key / base URL / env
   ├─ permissions.py      → permission rules and mode
+  ├─ sandbox/config.py   → bash sandbox runtime policy
+  ├─ workspace/config.py → trial workspace policy
   ├─ hooks.py            → hook matchers
   └─ mcp/config.py       → MCP server definitions
 ```

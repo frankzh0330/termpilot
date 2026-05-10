@@ -69,7 +69,8 @@ class ReadFileTool:
         offset = kwargs.get("offset") or 1
         limit = kwargs.get("limit")
 
-        path = Path(file_path).expanduser()
+        from termpilot.workspace import map_path_to_active_workspace
+        path = map_path_to_active_workspace(file_path)
 
         if not path.exists():
             return f"错误：文件不存在: {file_path}"
@@ -95,5 +96,6 @@ class ReadFileTool:
         result = "\n".join(numbered)
 
         # 补充元信息
-        meta = f"文件: {file_path} | 总行数: {total_lines} | 显示: {offset}-{min(offset + len(selected) - 1, total_lines)}"
+        meta_path = str(path)
+        meta = f"文件: {meta_path} | 总行数: {total_lines} | 显示: {offset}-{min(offset + len(selected) - 1, total_lines)}"
         return f"{meta}\n{result}"

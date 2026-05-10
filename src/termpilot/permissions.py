@@ -73,7 +73,11 @@ class PermissionRule:
     示例: Bash(git push:*) → allow
           FileWrite(*) → deny
           Edit(/tmp/*) → allow
-    支持: 通配符 ``*`` 匹配任意字符，``\\*`` 匹配字面量
+    支持:
+    - ``prefix:<value>`` 前缀匹配
+    - ``exact:<value>`` 精确匹配
+    - ``regex:<expr>`` 正则匹配
+    - legacy 通配符 ``*`` 匹配任意字符，``\\*`` 匹配字面量
     """
 
     tool_name: str
@@ -133,6 +137,23 @@ UNSAFE_TOOLS = frozenset({
 AGENT_TOOLS = frozenset({
     "agent",
 })
+
+RULE_PREFIX_PREFIX = "prefix:"
+RULE_EXACT_PREFIX = "exact:"
+RULE_REGEX_PREFIX = "regex:"
+
+# 默认只放行明显只读、低风险的 bash 前缀。更宽的规则仍应由用户显式授权。
+DEFAULT_SAFE_PREFIX_RULES = tuple(
+    PermissionRule("bash", PermissionBehavior.ALLOW, f"{RULE_PREFIX_PREFIX}{prefix}", source="policy")
+    for prefix in (
+        "git status",
+        "git log",
+        "git diff",
+        "git show",
+        "pwd",
+        "ls",
+    )
+)
 
 # ---------------------------------------------------------------------------
 # 路径安全验证
@@ -335,15 +356,15 @@ def classify_bash_command(command: str) -> tuple[str | None, str]:
     """
     stripped = command.strip()
 
-    # 1. 安全前缀快速放行
-    for prefix in _SAFE_BASH_PREFIXES:
-        if stripped == prefix or stripped.startswith(prefix + " ") or stripped.startswith(prefix + "\t"):
-            return None, "safe"
-
-    # 2. 高危模式检测
+    # 1. 高危模式检测。必须先于安全前缀，避免 "git branch -D" 被 "git branch" 误放行。
     for pattern, description, severity in DANGEROUS_BASH_PATTERNS:
         if pattern.search(command):
             return f"危险操作: {description}", severity
+
+    # 2. 安全前缀快速放行
+    for prefix in _SAFE_BASH_PREFIXES:
+        if stripped == prefix or stripped.startswith(prefix + " ") or stripped.startswith(prefix + "\t"):
+            return None, "safe"
 
     return None, "unknown"
 
@@ -386,13 +407,24 @@ def _wildcard_to_regex(pattern: str) -> re.Pattern:
     return re.compile('^' + ''.join(regex_parts) + '$', re.DOTALL)
 
 
+_SHELL_CONTROL_RE = re.compile(r"(&&|\|\||[;|<>`])")
+
+
+def _has_shell_control_operator(command: str) -> bool:
+    """Detect shell chaining/redirection that should not match simple prefix rules."""
+    return bool(_SHELL_CONTROL_RE.search(command))
+
+
 def _match_rule(rule: PermissionRule, tool_name: str, tool_input: dict) -> bool:
     """检查规则是否匹配当前工具调用。
 
     对应 TS shellRuleMatching.ts + permissionRuleParser.ts。
 
     支持的模式:
-    - pattern="*" → 匹配所有
+    - pattern="*" → 匹配所有（legacy）
+    - pattern="prefix:git status" → 前缀匹配
+    - pattern="exact:git status" → 精确匹配
+    - pattern="regex:^git\\s+status\\b" → 正则匹配
     - pattern="git push:*" → 匹配以 "git push" 开头的命令（旧语法）
     - pattern="git push*" → 通配符匹配（新语法）
     - pattern="/tmp/*" → 路径通配符
@@ -401,14 +433,42 @@ def _match_rule(rule: PermissionRule, tool_name: str, tool_input: dict) -> bool:
     if rule.tool_name != tool_name:
         return False
 
+    pattern = rule.pattern
+
+    # 结构化规则语法优先于 legacy 通配符语法。
+    target = ""
+    if tool_name == "bash":
+        target = str(tool_input.get("command", "")).strip()
+    else:
+        target = str(
+            tool_input.get("file_path")
+            or tool_input.get("path")
+            or tool_input.get("notebook_path")
+            or ""
+        )
+
+    if pattern.startswith(RULE_PREFIX_PREFIX):
+        prefix = pattern[len(RULE_PREFIX_PREFIX):]
+        if tool_name == "bash" and _has_shell_control_operator(target):
+            return False
+        return bool(target) and target.startswith(prefix)
+    if pattern.startswith(RULE_EXACT_PREFIX):
+        expected = pattern[len(RULE_EXACT_PREFIX):]
+        return bool(target) and target == expected
+    if pattern.startswith(RULE_REGEX_PREFIX):
+        expr = pattern[len(RULE_REGEX_PREFIX):]
+        try:
+            return bool(target) and bool(re.search(expr, target))
+        except re.error:
+            logger.warning("invalid permission regex ignored: %s", expr)
+            return False
+
     if rule.pattern == "*":
         return True
 
-    pattern = rule.pattern
-
     # Bash 工具 — 匹配命令
     if tool_name == "bash" and "command" in tool_input:
-        command = tool_input.get("command", "").strip()
+        command = target
         # 旧语法: "git push:*" → 前缀匹配
         if pattern.endswith(":*"):
             prefix = pattern[:-2]  # 去掉 :*
@@ -422,7 +482,7 @@ def _match_rule(rule: PermissionRule, tool_name: str, tool_input: dict) -> bool:
             return command.startswith(pattern)
 
     # 文件工具 — 匹配路径
-    file_path = tool_input.get("file_path", "")
+    file_path = target
     if not file_path:
         return False
 
@@ -453,6 +513,27 @@ def _find_matching_rule(
         if _match_rule(rule, tool_name, tool_input):
             return rule
     return None
+
+
+def _should_auto_allow_sandboxed_bash(
+        tool_name: str,
+        tool_input: dict,
+        context: PermissionContext,
+) -> bool:
+    """Return true only when this bash command will actually be sandboxed."""
+    if tool_name != "bash":
+        return False
+    try:
+        from termpilot.sandbox import SandboxManager, get_sandbox_config
+
+        sandbox_config = get_sandbox_config(context.working_directory or None)
+        return (
+            sandbox_config.auto_allow_bash_if_sandboxed
+            and SandboxManager.should_use_sandbox(tool_input.get("command", ""), sandbox_config)
+        )
+    except Exception as exc:
+        logger.debug("sandbox auto-allow unavailable: %s", exc)
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -599,6 +680,11 @@ def check_permission(
     # 7. ask 规则 — 强制询问
     ask_rule = _find_matching_rule(context.ask_rules, tool_name, tool_input)
     if ask_rule:
+        # Match Claude Code's behavior: an ask rule still yields to bash auto-allow
+        # when the command is guaranteed to run inside an available sandbox.
+        if _should_auto_allow_sandboxed_bash(tool_name, tool_input, context):
+            logger.debug("→ ALLOW (sandboxed bash overrides ask rule)")
+            return PermissionResult(behavior=PermissionBehavior.ALLOW)
         logger.debug("→ ASK (ask rule: %s(%s))", ask_rule.tool_name, ask_rule.pattern)
         return PermissionResult(
             behavior=PermissionBehavior.ASK,
@@ -631,7 +717,14 @@ def check_permission(
                 message=f"路径安全检查失败: {path_issue}",
             )
 
-    # 10. Bash 命令分类
+    # 10. Sandbox auto-allow. This only applies when an actual sandbox backend is
+    # available and the command is not excluded, so permission and isolation stay aligned.
+    if tool_name == "bash":
+        if _should_auto_allow_sandboxed_bash(tool_name, tool_input, context):
+            logger.debug("→ ALLOW (sandboxed bash)")
+            return PermissionResult(behavior=PermissionBehavior.ALLOW)
+
+    # 11. Bash 命令分类
     if tool_name == "bash":
         command = tool_input.get("command", "")
         danger_msg, severity = classify_bash_command(command)
@@ -648,7 +741,7 @@ def check_permission(
                 message=danger_msg,
             )
 
-    # 11. 默认策略
+    # 12. 默认策略
     if tool_name in UNSAFE_TOOLS:
         # DONT_ASK 模式下，需要询问的自动拒绝
         if context.mode == PermissionMode.DONT_ASK:
@@ -757,8 +850,45 @@ def load_permission_rules() -> list[PermissionRule]:
     return rules
 
 
-def save_permission_rule(rule: PermissionRule) -> None:
-    """持久化权限规则到 settings.json。"""
+def validate_permission_rule_safety(rule: PermissionRule) -> str | None:
+    """Return a warning when a rule is too broad to save implicitly."""
+    pattern = rule.pattern.strip()
+    if rule.behavior != PermissionBehavior.ALLOW:
+        return None
+
+    if rule.tool_name == "bash" and pattern in {"*", "prefix:", "regex:.*", "regex:^.*$"}:
+        return (
+            "Refusing to save a broad bash allow rule. Use a narrower "
+            "prefix:, exact:, or regex: rule, or pass force=True after explicit confirmation."
+        )
+
+    if rule.tool_name in {"write_file", "edit_file", "notebook_edit"} and pattern in {"*", "prefix:/", "regex:.*", "regex:^.*$"}:
+        return (
+            f"Refusing to save a broad {rule.tool_name} allow rule. Use an exact path, "
+            "a workspace-scoped prefix, or pass force=True after explicit confirmation."
+        )
+
+    if pattern.startswith(RULE_REGEX_PREFIX):
+        expr = pattern[len(RULE_REGEX_PREFIX):]
+        try:
+            re.compile(expr)
+        except re.error as exc:
+            return f"Invalid regex permission rule: {exc}"
+
+    return None
+
+
+def save_permission_rule(rule: PermissionRule, *, force: bool = False) -> str | None:
+    """持久化权限规则到 settings.json。
+
+    Returns:
+        None if the rule was saved, otherwise a warning explaining why it was blocked.
+    """
+    warning = validate_permission_rule_safety(rule)
+    if warning and not force:
+        logger.warning("permission rule not saved: %s", warning)
+        return warning
+
     settings = _read_settings()
     if "permissions" not in settings:
         settings["permissions"] = {}
@@ -780,10 +910,11 @@ def save_permission_rule(rule: PermissionRule) -> None:
             existing["behavior"] = rule_dict["behavior"]
             existing["source"] = rule_dict["source"]
             _write_settings(settings)
-            return
+            return None
 
     rules.append(rule_dict)
     _write_settings(settings)
+    return None
 
 
 def build_permission_context(
@@ -814,6 +945,10 @@ def build_permission_context(
     allow_rules = [r for r in rules if r.behavior == PermissionBehavior.ALLOW]
     deny_rules = [r for r in rules if r.behavior == PermissionBehavior.DENY]
     ask_rules = [r for r in rules if r.behavior == PermissionBehavior.ASK]
+
+    for rule in reversed(DEFAULT_SAFE_PREFIX_RULES):
+        if not any(r.tool_name == rule.tool_name and r.pattern == rule.pattern for r in allow_rules):
+            allow_rules.insert(0, rule)
 
     # CLI --allowed-tools 参数：添加额外的 allow 规则
     if allowed_tools:

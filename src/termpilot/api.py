@@ -35,7 +35,7 @@ from rich.console import Console
 logger = logging.getLogger(__name__)
 console = Console()
 
-from termpilot.compact import auto_compact_if_needed
+from termpilot.compact import auto_compact_if_needed, estimate_tokens, full_compact, micro_compact
 from termpilot.tool_result_storage import process_tool_result
 from termpilot.config import (
     apply_settings_env,
@@ -121,6 +121,47 @@ def _is_retryable_tool_error(exc: Exception) -> bool:
     """判断 tool 执行错误是否可重试（超时/限流）。"""
     s = str(exc).lower()
     return any(w in s for w in ("timeout", "timed out", "429", "rate limit"))
+
+
+def _is_context_overflow_error(exc: Exception) -> bool:
+    """判断 API 错误是否为上下文窗口溢出。"""
+    s = str(exc).lower()
+    markers = (
+        "context_length_exceeded",
+        "context window",
+        "context window exceeded",
+        "context length",
+        "maximum context",
+        "token limit",
+        "too many tokens",
+        "request too large",
+        "413",
+    )
+    return any(marker in s for marker in markers)
+
+
+async def _compact_and_retry_messages(
+        messages: list[dict[str, Any]],
+        system_prompt: str,
+        client: Any,
+        model: str,
+        *,
+        context_window: int,
+        client_format: str,
+) -> list[dict[str, Any]]:
+    """Emergency compact path used after an API context overflow."""
+    compacted = micro_compact(messages)
+    token_count = estimate_tokens(compacted, system_prompt)
+    if token_count <= int(context_window * 0.8):
+        return compacted
+    return await full_compact(
+        compacted,
+        system_prompt,
+        client,
+        model,
+        context_window=context_window,
+        client_format=client_format,
+    )
 
 
 def create_client() -> tuple[Any, str]:
@@ -511,7 +552,7 @@ async def _execute_tools_concurrent(
                                     pattern=update.get("pattern", "*"),
                                     behavior=PermissionBehavior(update["behavior"]),
                                     source="user_settings",
-                                ))
+                                ), force=True)
                                 _apply_permission_rule_update(permission_context, update)
 
                         if user_result.behavior == PermissionBehavior.DENY:
@@ -796,18 +837,37 @@ async def query_with_tools(
                                api_attempt + 1, MAX_API_RETRIES + 1, wait, e)
                 await asyncio.sleep(wait)
 
-        async for event in stream:
-            if event["type"] == "text":
-                if not assistant_started and on_event:
-                    on_event({"type": "assistant_text_started"})
-                    assistant_started = True
-                text_chunks.append(event["content"])
-                if on_text:
-                    on_text(event["content"])
-            elif event["type"] == "tool_use":
-                tool_use_blocks.append(event)
-            elif event["type"] == "usage":
-                iteration_usage = event["usage"]
+        try:
+            async for event in stream:
+                if event["type"] == "text":
+                    if not assistant_started and on_event:
+                        on_event({"type": "assistant_text_started"})
+                        assistant_started = True
+                    text_chunks.append(event["content"])
+                    if on_text:
+                        on_text(event["content"])
+                elif event["type"] == "tool_use":
+                    tool_use_blocks.append(event)
+                elif event["type"] == "usage":
+                    iteration_usage = event["usage"]
+        except Exception as e:
+            if not _is_context_overflow_error(e):
+                raise
+            if text_chunks or tool_use_blocks:
+                # Avoid replaying a half-rendered assistant turn into the terminal.
+                raise
+            logger.warning("context overflow detected, compacting and retrying: %s", e)
+            if on_event:
+                on_event({"type": "status_updated", "text": "Compacting context and retrying…"})
+            current_messages = await _compact_and_retry_messages(
+                current_messages,
+                system_prompt,
+                client,
+                model,
+                context_window=context_window,
+                client_format=client_format,
+            )
+            continue
 
         assistant_text = "".join(text_chunks)
 

@@ -165,13 +165,13 @@ def has_snapshots() -> bool:
     return _disk_snapshot_count() > 0
 
 
-def get_snapshot_count() -> int:
-    """当前快照栈深度。"""
-    return len(_undo_stack) or _disk_snapshot_count()
-
-
 def clear_snapshots() -> None:
-    """清空快照栈和磁盘文件。"""
+    """清空当前 session 的 undo 快照。
+
+    当前 /undo 会通过 pop_snapshot() 逐个消费快照；这个函数用于需要显式
+    清理整个当前 session 快照栈的场景，例如未来的 /clear、测试隔离或
+    会话生命周期清理。
+    """
     _undo_stack.clear()
     try:
         snap_file = _get_snapshot_file()

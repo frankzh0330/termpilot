@@ -76,14 +76,15 @@ class EditFileTool:
         new_string = kwargs.get("new_string", "")
         replace_all = kwargs.get("replace_all", False)
 
-        path = Path(file_path).expanduser()
+        from termpilot.workspace import map_path_to_active_workspace
+        path = map_path_to_active_workspace(file_path)
 
         if not path.exists():
             return f"错误：文件不存在: {file_path}"
 
         # 修改前保存快照（用于 /undo 回退）
         from termpilot.undo import save_snapshot
-        save_snapshot(file_path, operation="edit_file",
+        save_snapshot(str(path), operation="edit_file",
                       old_string=old_string, new_string=new_string)
 
         def _edit() -> str:
@@ -108,7 +109,7 @@ class EditFileTool:
                     logger.info("memory edit: %s (replaced %d)", file_path, count if replace_all else 1)
             except Exception:
                 pass
-            return f"已编辑: {file_path} (替换了 {count if replace_all else 1} 处)"
+            return f"已编辑: {path} (替换了 {count if replace_all else 1} 处)"
 
         try:
             return await asyncio.to_thread(_edit)

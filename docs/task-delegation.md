@@ -166,6 +166,8 @@ Phase-one behavior is intentionally serial:
 - The tool returns a JSON payload with `delegated_tasks` and `summary`.
 - More than three tasks are rejected to prevent runaway delegation.
 
+By default, both single-agent and batch-agent delegation block until the sub-agent results are available, so the current model turn can use those results before answering. Background execution is opt-in via `run_in_background=true`; in that mode the tool returns an `async_launched` payload immediately, the runtime records the spawned `AgentTask`, and completion is delivered back to the main loop through the message queue.
+
 ### AgentTask Runtime
 
 The `agent` tool no longer behaves like a one-off text-returning function. Every spawn creates a persistent `AgentTask`:
@@ -185,6 +187,21 @@ New runtime tools:
 - `agent_task_get`: inspect one agent runtime record.
 
 Remote agents are represented as an extension point via `AgentTask.execution_mode`, but only the local adapter is implemented today.
+
+### Value
+
+The important shift in this change is that sub-agents move from "one tool call that returns a summary" to runtime actors with durable identity, state, observability, and continuation paths. This makes TermPilot's multi-agent design closer to a collaborative runtime rather than a simple fan-out of model requests.
+
+In practice, the main agent can now delegate work, inspect what happened, continue a previous sub-agent conversation, and keep enough runtime metadata to support future remote execution without redesigning the local agent model.
+
+Summary of the change:
+
+- Added persistent `AgentTask` records with `agent_id`, status, foreground/background mode, summary, error, transcript path, and result path.
+- Registered single-agent, batch-agent, and background-agent spawns as formal `AgentTask` records.
+- Added `agent_send` so an existing local sub-agent transcript can continue without spawning a duplicate.
+- Added `agent_task_list` and `agent_task_get` for inspecting agent runtime records.
+- Blocked sub-agents from recursively using `agent`, `agent_send`, and agent task management tools, preventing uncontrolled orchestration trees.
+- Documented the current local-only boundary and the future `RemoteAgentTask` adapter direction.
 
 ## Built-In Agent Roles
 

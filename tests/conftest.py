@@ -18,6 +18,7 @@ def tmp_settings(tmp_path, monkeypatch):
         return settings_file
 
     monkeypatch.setattr("termpilot.config.get_settings_path", lambda: settings_file)
+    monkeypatch.setattr("termpilot.permissions.get_settings_path", lambda: settings_file)
     _write({})
     return _write
 

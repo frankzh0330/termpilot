@@ -166,6 +166,8 @@ Quiet UI 已经能显示单个 agent 卡片，但批量委派需要更清楚的�
 - 工具返回包含 `delegated_tasks` 和 `summary` 的 JSON 结果。
 - 超过三个任务会被拒绝，避免失控委派。
 
+默认情况下，单 agent 和 batch agent 都会阻塞等待子代理结果返回，这样当前模型回合可以基于真实结果继续回答。后台执行需要显式设置 `run_in_background=true`；此时工具会立即返回 `async_launched`，runtime 会记录对应 `AgentTask`，完成后再通过 message queue 通知主循环。
+
 ### AgentTask runtime
 
 `agent` 工具现在不只是返回一次性文本。每次 spawn 都会创建一个持久化 `AgentTask`：
@@ -185,6 +187,21 @@ Quiet UI 已经能显示单个 agent 卡片，但批量委派需要更清楚的�
 - `agent_task_get`：查看单个 agent runtime record。
 
 remote agent 暂时只保留模型形态：`AgentTask.execution_mode` 已区分 `local` / `remote`，但当前只实现本地 adapter。
+
+### 价值意义
+
+这次修改最重要的变化是：子 Agent 从“一个返回 summary 的工具调用”，升级为有持久身份、有状态、可观测、可继续对话的 runtime 执行主体。这让 TermPilot 的多 Agent 设计更接近协作型 runtime，而不是简单把模型请求 fan-out 出去。
+
+实际效果是，主 agent 不仅可以派发工作，还可以检查子 Agent 做过什么、继续已有子 Agent 会话，并保留足够的 runtime 元数据，为后续远程执行形态提供统一承载模型。
+
+修改点总结：
+
+- 新增持久化 `AgentTask` record，记录 `agent_id`、状态、前后台模式、summary、error、transcript path 和 result path。
+- 单 agent、batch agent、background agent 的 spawn 都会注册为正式 `AgentTask` record。
+- 新增 `agent_send`，让已有本地子 Agent transcript 可以继续工作，避免重复 spawn。
+- 新增 `agent_task_list` 和 `agent_task_get`，用于查看 agent runtime records。
+- 禁止子 Agent 递归使用 `agent`、`agent_send` 和 agent task 管理工具，避免失控的调度树。
+- 文档明确当前 local-only 边界，以及未来 `RemoteAgentTask` adapter 的演进方向。
 
 ## 内置代理角色
 
