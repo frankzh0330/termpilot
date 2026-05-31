@@ -130,7 +130,12 @@ def _is_ignored(rel_path: str, config: TrialWorkspaceConfig) -> bool:
         return True
     parts = Path(rel_path).parts
     for pattern in config.copy_exclude_patterns:
-        if pattern in parts or fnmatch.fnmatch(rel_path, pattern) or fnmatch.fnmatch(name, pattern):
+        if (
+            pattern in parts
+            or fnmatch.fnmatch(rel_path, pattern)
+            or fnmatch.fnmatch(name, pattern)
+            or any(fnmatch.fnmatch(part, pattern) for part in parts)
+        ):
             return True
     return False
 

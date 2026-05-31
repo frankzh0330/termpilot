@@ -139,7 +139,7 @@ termpilot -s <session-id>
 | `/mcp` | 显示 MCP 服务器状态 |
 | `/undo` | 恢复上一次文件快照 |
 | `/rewind` | 回退对话到历史某个 turn，从该点继续 |
-| `/trial start`、`/trial diff`、`/trial apply`、`/trial discard` | 在隔离 trial workspace 中工作，查看变更后再应用或丢弃 |
+| `/trial start`、`/trial diff`、`/trial apply`、`/trial discard`、`/trial clean` | 在隔离 trial workspace 中工作，查看变更后再应用、丢弃或清理旧 workspace |
 | `/commit` | AI 生成 git commit |
 | `/init` | 为当前项目生成指令模板 |
 | `/exit`、`/quit` | 退出程序 |
@@ -150,7 +150,7 @@ termpilot -s <session-id>
 
 TermPilot 保留公开工具名 `agent`，但语义更接近 `delegate_task`：用 `Plan` 处理实现方案，用 `Explore` 处理大范围代码理解，用 `Verification` 处理检查和测试，用 `general-purpose` 处理复杂自主执行。如果存在多个独立方向，模型可以传入 `tasks` 数组，一次委派最多 3 个子任务。当前批量委派是串行执行，以保持 UI、权限和结果顺序可预测。
 
-每个被 spawn 的子代理也会注册为持久化 `AgentTask`，拥有 `agent_id`、状态、transcript 路径和结果路径。`agent_send` 可以继续已有本地 AgentTask transcript，`agent_task_list` 和 `agent_task_get` 用于查看 runtime records。remote AgentTask 目前只是后续扩展点，当前只实现本地 adapter。
+每个被 spawn 的子代理也会注册为持久化 `AgentTask`，拥有 `agent_id`、状态、transcript 路径和结果路径。trial mode 激活时，AgentTask metadata 也会记录当前 `workspace_id`，把委派任务和实际运行的隔离工作区关联起来。`agent_send` 可以继续已有本地 AgentTask transcript，`agent_task_list` 和 `agent_task_get` 用于查看 runtime records。remote AgentTask 目前只是后续扩展点，当前只实现本地 adapter。
 
 | 类型 | 说明 |
 |------|------|
@@ -172,7 +172,11 @@ sandbox 层目前是 v1 runtime 边界，不是完整安全产品。它被设计
 
 TermPilot 可以先在隔离 trial workspace 中执行编码任务，再由用户决定是否把变更应用回源项目。使用 `/trial start` 创建工作区，让 agent 在其中编辑和运行命令，用 `/trial diff` 查看变更，然后用 `/trial apply` 应用，或用 `/trial discard` 丢弃。
 
-当前实现支持 Git 仓库的 `git worktree` backend，也支持便于手动测试或脏工作区使用的 copy backend。流程、命令、配置和限制见 [Trial Workspace Runtime](docs/trial-workspace.zh-CN.md)。
+当 `trialWorkspace.enabled` 为 true 时，TermPilot 可以对看起来会修改文件的请求保守地自动创建 trial workspace。`/trial apply` 会先检查源项目是否发生漂移，再复制变更；`/trial clean` 用于清理过期的非 active workspace。当前实现支持 Git 仓库的 `git worktree` backend，也支持便于手动测试或脏工作区使用的 copy backend。流程、命令、配置和限制见 [Trial Workspace Runtime](docs/trial-workspace.zh-CN.md)。
+
+## Eval Harness
+
+TermPilot 在 `evals/` 下提供一个小型 TerminalBench-like eval harness。它会在隔离任务 workspace 中运行 `termpilot -p`，执行确定性的 verifier 命令，并记录 `results.jsonl`、`summary.json`、`report.md`、日志、diff、复制后的 session JSONL，以及可移植的 `trajectories.jsonl`，用于回归分析。路线图和 runner 细节见 [Harness Engineering](docs/harness-engineering.zh-CN.md)。
 
 ### 自定义代理
 

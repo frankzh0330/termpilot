@@ -46,22 +46,25 @@ TermPilot 会借鉴 OpenHands、SWE-bench 和 TerminalBench 中有价值的部�
 ```text
 evals/
 ├── run_eval.py
-├── tasks.jsonl
+├── tasks/smoke.jsonl
 └── templates/
 ```
 
 这个原型已经体现了正确的核心形态：
 
-- 从 `evals/tasks.jsonl` 加载任务
+- 从 `evals/tasks/*.jsonl` 加载任务
 - 将任务模板复制到临时 workspace
 - 为 TermPilot 创建隔离的临时配置目录
 - 运行 `python -m termpilot -p <prompt>`
 - 通过生成的测试 settings 启用 bypass 权限
-- 运行 verifier 命令
-- 记录 pass/fail、耗时、token 数、工具调用数、日志、diff 和变更文件
-- 可选择保留失败任务的 workspace 供排查
+- 运行命令型或结构化 verifier
+- 记录 pass/fail、耗时、日志、diff、变更文件、复制后的 session JSONL 和可移植 trajectory
+- 默认保留失败任务的 workspace 供排查
+- 支持任务级权限/settings 覆盖、预期工具调用检查，以及成功后先 apply 再验证的
+  trial-workspace runtime
 
-这部分会被视为 harness 架构的种子，而不是一次性的测试脚本。
+这个原型现在已经整理成小型 TerminalBench-like harness。生成产物放在
+`evals/runs/` 并被 git 忽略；任务定义和 fixture 作为可 review 的源文件保留。
 
 ## 目标架构
 
@@ -94,7 +97,7 @@ workspace 和输出都是受控且可机器读取的。
 
 ## 任务 Schema
 
-任务 schema 第一阶段会保持简洁，只在 runner 真的需要时再扩展。
+任务 schema 会刻意保持简洁，只在 runner 真的需要时再扩展。
 
 最小字段：
 
@@ -108,17 +111,27 @@ workspace 和输出都是受控且可机器读取的。
 }
 ```
 
-计划支持的字段：
+已支持字段：
 
 - `id`：稳定的任务标识，用于日志和报告。
 - `prompt`：传给 TermPilot 的用户提示词。
 - `workspace`：复制到临时 workspace 的 fixture/template 目录。
-- `verifier`：TermPilot 退出后运行的验证命令。
+- `verifier`：TermPilot 退出后的最终判分规则。它可以是命令字符串，也可以是
+  `file_contains`、`json_match`、`composite` 等结构化 verifier 对象。
 - `timeout`：agent 单次运行的最大耗时。
-- `max_turns`：计划在 CLI/runtime 暴露后，用于控制 agent loop 长度。
 - `tags`：可选标签，例如 `smoke`、`file-edit`、`pytest`、`terminal`。
-- `verifier_type`：计划用于选择 `command`、`file_contains` 或 `python`。
 - `expected_files`：可选的显式文件级检查。
+- `permission_mode`：可选的单任务权限模式覆盖。
+- `settings`：可选任务 settings，会合并到隔离的临时配置中。
+- `runtime`：可选 runtime。`standard` 直接在复制后的 fixture 中运行；
+  `trial_workspace` 会在隔离 trial workspace 中运行，成功后先 apply 回源 workspace
+  再执行 verifier。
+- `expected_tool_calls`：可选的工具名列表，要求这些工具调用必须出现在捕获的
+  session 中，适合检查 delegation 类任务。
+
+计划字段：
+
+- `max_turns`：计划在 CLI/runtime 暴露后，用于控制 agent loop 长度。
 
 任务行会保持可读。如果任务需要复杂逻辑，把逻辑放进 verifier 脚本，然后在任务行里引用它。
 
@@ -220,30 +233,33 @@ TermPilot 的 benchmark 覆盖会分层建设。每一层都会先保持小而�
 计划让 verifier 逻辑保持确定性，并且位于模型之外。Agent 可以声称任务完成，
 但真正判定任务是否完成的是 harness。
 
-初始 verifier 类型：
+已实现 verifier 类型：
 
 - `command`：在最终 workspace 中运行 shell 命令，用退出码判断 pass/fail。
+- `file_contains`：检查文件包含预期内容。
+- `file_absent`：检查不希望出现的文件没有被创建。
+- `json_match`：比较 JSON 文件是否等于期望值。
+- `composite`：组合多个检查并给出分数。
 
 计划增加的 verifier 类型：
 
-- `file_contains`：检查文件包含或精确等于预期内容。
-- `file_absent`：检查不希望出现的文件没有被创建。
 - `python`：运行一个输出结构化 JSON 的 Python verifier 脚本。
-- `composite`：组合多个检查并给出分数。
 
 所有 verifier 会输出统一的规范化结果：
 
 ```json
 {
   "passed": true,
-  "score": 1.0,
+  "type": "command",
   "exit_code": 0,
   "stdout": "...",
-  "stderr": "..."
+  "stderr": "...",
+  "details": {}
 }
 ```
 
-这样后续会自然支持部分得分和 RL-style reward function。
+这样后续会自然支持部分得分和 RL-style reward function，但当前本地 harness
+仍然按 pass/fail 处理每个 verifier。
 
 ## Runtime 需求
 
@@ -256,8 +272,8 @@ TermPilot 的 benchmark 覆盖会分层建设。每一层都会先保持小而�
 - 稳定的 session/trajectory 导出
 - timeout 处理：任务失败时不影响后续任务
 
-当前原型已经通过写入临时 settings 和在临时工作目录运行，外部实现了其中一部分。
-这是很好的起点。长期来看，计划让 CLI 提供显式的 eval-friendly 控制项，例如：
+当前 runner 现在同时使用两种方式：每个任务仍会写入独立的临时 config home，
+同时也会用显式 eval-friendly CLI 参数调用 TermPilot：
 
 ```bash
 python -m termpilot \
@@ -268,7 +284,8 @@ python -m termpilot \
   --json-summary
 ```
 
-如果一开始不想加入太多 CLI 参数，环境变量是一个合适的过渡：
+同一个权限覆盖也通过环境变量暴露，方便不想改变 CLI 命令形态的外部 runner
+或测试 harness 使用：
 
 ```bash
 TERMPILOT_CONFIG_DIR=/tmp/termpilot-eval/config
@@ -278,9 +295,9 @@ TERMPILOT_PERMISSION_MODE=bypassPermissions
 ## Trajectory 采集
 
 Session JSONL 已经适合恢复会话，但 eval 和训练需要更可移植的 trajectory 格式。
-计划会增加一个转换层，而不是直接改变 session 存储。
+TermPilot 现在把它实现为一个转换层，而不是直接改变 session 存储。
 
-计划模块：
+已实现模块：
 
 ```text
 src/termpilot/trajectory.py
@@ -292,6 +309,10 @@ src/termpilot/trajectory.py
 - 重建 user、assistant、tool-use 和 tool-result turns
 - 附加任务 metadata 与 verifier 结果
 - 每个任务输出一个 JSON 对象
+
+本地 eval runner 会把每个任务的临时 session 文件复制为
+`<task-id>.session.jsonl`，并在 `results.jsonl` 旁边追加一条可移植记录到
+`trajectories.jsonl`。
 
 目标结构：
 
@@ -327,9 +348,15 @@ Trajectory 文件会支持：
 
 ## 报告与失败分析
 
-Harness 每次运行后会生成一份简洁的人类可读报告。
+Harness 每次运行后现在会生成一份简洁的人类可读报告，以及一份机器可读 summary。
 
-计划报告形态：
+已实现产物：
+
+- `summary.json`：聚合 pass/fail/timeout 数量、通过率、按 tag/model 分桶、
+  最慢任务、失败产物路径和所有 artifact 路径。
+- `report.md`：人类可读报告，便于快速复盘一次运行，而不需要逐个打开任务日志。
+
+报告形态：
 
 ```text
 Pass rate: 4/5
@@ -345,15 +372,15 @@ Common signals:
 - 1 task edited tests but not implementation
 ```
 
-报告后续会包含：
+当前 report 已包含：
 
 - 按 tag 统计通过率
 - 按 model 统计通过率
 - 最慢任务
-- 没有文件 diff 的任务
-- 日志中未观察到 verifier 运行的任务
-- 最常见工具错误
-- 变更文件摘要
+- 失败任务行，包括日志、diff、verifier 状态、缺失 expected files，以及 workspace 是否保留
+
+后续报告信号可以继续补充：没有文件 diff 的任务、日志中未观察到 verifier
+运行的任务、最常见工具错误和变更文件摘要。
 
 这会形成闭环：benchmark 结果会直接指向 system prompt、tool description、
 permissions、context compaction 和 tool result formatting 的改进。
@@ -392,26 +419,27 @@ python evals/run_eval.py \
 
 ### Phase 1: 稳定本地 Harness
 
-- 保留 `evals/run_eval.py` 作为第一版 runner。
-- 将 `evals/tasks.jsonl` 扩展到 10-20 个小任务。
-- 确保失败 workspace、日志和 diff 易于检查。
-- 固定结果 schema。
-- 每次运行生成简短 report。
+- 已实现 `evals/run_eval.py` 作为第一版 runner。
+- smoke 任务集已扩展到 10 个任务，覆盖 pytest、文件编辑、文件删除、JSON 输出、
+  package 创建和 composite checks。
+- 失败 workspace、日志、diff、复制后的 session、trajectory、summary JSON
+  和 Markdown report 都已经作为运行产物写出。
+- 随着任务集扩大，继续收紧 result schema。
 
 ### Phase 2: 增加 Eval-Friendly CLI 控制
 
-- 增加显式 permission-mode 覆盖。
-- 按需增加 working-directory 覆盖。
-- 增加 JSON summary 输出。
+- 已实现显式 `--permission-mode` 覆盖。
+- 已实现 `--cwd` 工作目录覆盖。
+- 已实现 one-shot `--json-summary` 输出。
 - 增加可选 max-turn 或 max-tool-loop 控制。
-- 不再依赖终端渲染文本提取指标。
+- 继续减少对终端渲染文本的指标依赖。
 
 ### Phase 3: 增加 Trajectory 导出
 
-- 实现 `src/termpilot/trajectory.py`。
-- 在 eval result row 中附加 session file path。
-- 在 `results.jsonl` 旁边输出 `trajectories.jsonl`。
-- 将 verifier 结果写入每条 trajectory。
+- 已实现 `src/termpilot/trajectory.py`。
+- eval result row 会附加复制后的 session file path。
+- runner 会在 `results.jsonl` 旁边输出 `trajectories.jsonl`。
+- 每条 trajectory 都包含任务 metadata 与 verifier 结果。
 
 ### Phase 4: 改进隔离
 
@@ -444,4 +472,3 @@ python evals/run_eval.py \
 - 不让 eval-only 需求污染交互式 CLI 体验。
 - 只有当 harness 有具体需求时，才给 CLI/runtime 增加新能力。
 - 每个 benchmark 结果都会尽量转化为 prompt、tool 或 runtime 的改进线索。
-

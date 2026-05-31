@@ -6,8 +6,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 import time
+from pathlib import Path
 from typing import Any
 
 import click
@@ -293,7 +296,7 @@ async def _stream_response_with_tools(
     return full_response
 
 
-async def _async_single_prompt(prompt: str, model: str) -> None:
+async def _async_single_prompt(prompt: str, model: str, *, json_summary: bool = False) -> None:
     """单次 prompt 模式。"""
     logger.debug("=== single_prompt mode: model=%s, prompt=%r", model, prompt[:100])
 
@@ -384,6 +387,18 @@ async def _async_single_prompt(prompt: str, model: str) -> None:
     if title:
         storage.save_metadata("custom-title", title)
         logger.debug("session title: %s", title)
+
+    if json_summary:
+        usage = cost_tracker.total_usage
+        console.print(json.dumps({
+            "session_id": storage.session_id or "",
+            "model": model,
+            "response_chars": len(response),
+            "input_tokens": usage.input_tokens + usage.cache_creation_input_tokens + usage.cache_read_input_tokens,
+            "output_tokens": usage.output_tokens,
+            "total_tokens": usage.total_tokens,
+            "cost_usd": round(cost_tracker.get_total_cost(), 6),
+        }, ensure_ascii=False))
 
     # Stop Hook
     await dispatch_hooks(
@@ -763,6 +778,30 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
         if routing_reminder:
             effective_input += f"\n\n{routing_reminder}"
 
+        from termpilot.workspace import (
+            TrialWorkspaceManager,
+            decide_trial_workspace,
+            get_active_trial_workspace,
+            get_trial_workspace_config,
+            set_active_trial_workspace,
+        )
+        active_trial_workspace = get_active_trial_workspace()
+        if active_trial_workspace is None and permission_context.mode.value != "plan":
+            trial_config = get_trial_workspace_config()
+            trial_decision = decide_trial_workspace(user_input, trial_config)
+            if trial_decision.should_start:
+                try:
+                    trial_workspace = TrialWorkspaceManager(trial_config).create(
+                        purpose=user_input[:160],
+                    )
+                    set_active_trial_workspace(trial_workspace)
+                    active_trial_workspace = trial_workspace
+                    console.print(
+                        f"[dim]Trial workspace started automatically: {trial_workspace.id}[/dim]"
+                    )
+                except Exception as exc:
+                    logger.warning("failed to auto-start trial workspace: %s", exc)
+
         attachment_blocks = process_attachments(effective_input)
         if attachment_blocks:
             content_blocks = [{"type": "text", "text": effective_input}] + attachment_blocks
@@ -782,7 +821,6 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
                     "</system-reminder>"
                 ),
             })
-        from termpilot.workspace import get_active_trial_workspace
         active_trial_workspace = get_active_trial_workspace()
         if active_trial_workspace is not None:
             messages.append({
@@ -1082,14 +1120,45 @@ def _check_update() -> None:
     default=None,
     help="指定要恢复的会话 ID",
 )
+@click.option(
+    "--permission-mode",
+    type=click.Choice([mode.value for mode in PermissionMode]),
+    default=None,
+    help="Override permission mode for this run (useful for eval harnesses)",
+)
+@click.option(
+    "--cwd",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+    help="Run TermPilot from this working directory",
+)
+@click.option(
+    "--json-summary",
+    is_flag=True,
+    default=False,
+    help="Print a machine-readable JSON summary after one-shot mode",
+)
 @click.pass_context
-def main(ctx: click.Context, prompt: str | None, model: str | None, resume: bool, session_id: str | None) -> None:
+def main(
+        ctx: click.Context,
+        prompt: str | None,
+        model: str | None,
+        resume: bool,
+        session_id: str | None,
+        permission_mode: str | None,
+        cwd: Path | None,
+        json_summary: bool,
+) -> None:
     """TermPilot — AI 编程助手。"""
     if ctx.invoked_subcommand is not None:
         return
     _setup_logging()
     _check_update()
     ensure_settings_template()
+    if cwd is not None:
+        os.chdir(cwd.expanduser().resolve())
+    if permission_mode:
+        os.environ["TERMPILOT_PERMISSION_MODE"] = permission_mode
 
     resolved_model = model or get_effective_model(DEFAULT_MODEL)
     logger.debug("=== main() called: prompt=%s, model=%s, resume=%s, session_id=%s ===",
@@ -1103,8 +1172,10 @@ def main(ctx: click.Context, prompt: str | None, model: str | None, resume: bool
         effective_session_id = _pick_session(sessions)
 
     if prompt:
-        asyncio.run(_async_single_prompt(prompt, resolved_model))
+        asyncio.run(_async_single_prompt(prompt, resolved_model, json_summary=json_summary))
     else:
+        if json_summary:
+            raise click.UsageError("--json-summary is only supported with --prompt/-p")
         asyncio.run(_async_interactive(resolved_model, effective_session_id))
 
 

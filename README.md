@@ -139,7 +139,7 @@ termpilot -s <session-id>
 | `/mcp` | Show MCP server status |
 | `/undo` | Restore the previous file snapshot |
 | `/rewind` | Rewind conversation to a previous turn and continue from there |
-| `/trial start`, `/trial diff`, `/trial apply`, `/trial discard` | Work in an isolated trial workspace, review changes, then apply or discard them |
+| `/trial start`, `/trial diff`, `/trial apply`, `/trial discard`, `/trial clean` | Work in an isolated trial workspace, review changes, then apply, discard, or clean stale workspaces |
 | `/commit` | Draft a commit flow with AI-generated commit message guidance |
 | `/init` | Generate a project instruction seed for the current project |
 | `/exit`, `/quit` | Exit the program |
@@ -150,7 +150,7 @@ The `agent` tool delegates work to sub-agents that run in an isolated context wi
 
 TermPilot keeps the public tool name `agent`, but its intended semantics are closer to `delegate_task`: use `Plan` for implementation strategy, `Explore` for broad codebase understanding, `Verification` for checks and tests, and `general-purpose` for complex autonomous execution. For multiple independent directions, the model can pass a `tasks` array and delegate up to 3 sub-agents in one call. Batch delegation currently runs serially for predictable UI, permission, and result ordering.
 
-Each spawned sub-agent is also registered as a persistent `AgentTask` with an `agent_id`, status, transcript path, and result path. The `agent_send` tool can continue an existing local AgentTask transcript, while `agent_task_list` and `agent_task_get` expose the runtime records for inspection. Remote AgentTask execution is represented as a future extension point, but only the local adapter is implemented today.
+Each spawned sub-agent is also registered as a persistent `AgentTask` with an `agent_id`, status, transcript path, and result path. When trial mode is active, the AgentTask metadata also records the active `workspace_id`, keeping delegated work linked to the isolated workspace where it ran. The `agent_send` tool can continue an existing local AgentTask transcript, while `agent_task_list` and `agent_task_get` expose the runtime records for inspection. Remote AgentTask execution is represented as a future extension point, but only the local adapter is implemented today.
 
 | Type | Description |
 |------|-------------|
@@ -172,7 +172,11 @@ The sandbox layer is a v1 runtime boundary, not a complete security product. It 
 
 TermPilot can run coding work in an isolated trial workspace before applying changes to the source project. Use `/trial start` to create a workspace, let the agent edit and run commands there, inspect changes with `/trial diff`, then either apply them with `/trial apply` or remove the workspace with `/trial discard`.
 
-The current implementation supports `git worktree` for Git repositories and a portable copy backend for manual testing or dirty working trees. See [Trial Workspace Runtime](docs/trial-workspace.md) for the flow, commands, settings, and limitations.
+When `trialWorkspace.enabled` is true, TermPilot can conservatively auto-start a trial workspace for write-like prompts. `/trial apply` checks for source drift before copying changes back, and `/trial clean` removes stale non-active workspaces. The current implementation supports `git worktree` for Git repositories and a portable copy backend for manual testing or dirty working trees. See [Trial Workspace Runtime](docs/trial-workspace.md) for the flow, commands, settings, and limitations.
+
+## Eval Harness
+
+TermPilot includes a small TerminalBench-like eval harness under `evals/`. It runs `termpilot -p` against isolated task workspaces, executes deterministic verifier commands, and records `results.jsonl`, `summary.json`, `report.md`, logs, diffs, copied session JSONL, and portable `trajectories.jsonl` rows for regression analysis. See [Harness Engineering](docs/harness-engineering.md) for the roadmap and runner details.
 
 ### Custom Agents
 
