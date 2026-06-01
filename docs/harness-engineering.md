@@ -54,23 +54,26 @@ prototype under `evals/`:
 ```text
 evals/
 ├── run_eval.py
-├── tasks.jsonl
+├── tasks/smoke.jsonl
 └── templates/
 ```
 
 The prototype already demonstrates the right core shape:
 
-- loads tasks from `evals/tasks.jsonl`
+- loads tasks from `evals/tasks/*.jsonl`
 - copies a task template into a temporary workspace
 - creates an isolated temporary TermPilot config directory
 - runs `python -m termpilot -p <prompt>`
 - applies bypass permissions through generated test settings
-- runs a verifier command
-- records pass/fail, duration, token count, tool count, logs, diffs, and changed files
-- optionally preserves failed workspaces for inspection
+- runs command or structured verifiers
+- records pass/fail, duration, logs, diffs, changed files, copied session JSONL, and portable trajectories
+- preserves failed workspaces for inspection by default
+- supports task-level permission/settings overrides, expected tool-call checks,
+  and a trial-workspace runtime that applies successful changes before verification
 
-This prototype will be treated as the seed of the harness architecture, not as throwaway
-test code.
+The prototype is now shaped as a small TerminalBench-like harness. Generated
+artifacts live under `evals/runs/` and are ignored by git; task definitions and
+fixtures remain reviewable source files.
 
 ## Target Architecture
 
@@ -105,8 +108,8 @@ outputs.
 
 ## Task Schema
 
-The task schema will stay small at first and grow only when the runner needs
-more structure.
+The task schema is intentionally small and grows only when the runner needs more
+structure.
 
 Minimum fields:
 
@@ -120,20 +123,31 @@ Minimum fields:
 }
 ```
 
-Planned fields:
+Supported fields:
 
 - `id`: stable task identifier used in logs and reports.
 - `prompt`: user prompt passed to TermPilot.
 - `workspace`: fixture/template directory copied into a temporary workspace.
-- `verifier`: command run after TermPilot exits.
+- `verifier`: final judge run after TermPilot exits. It can be either a command
+  string or a structured verifier object such as `file_contains`,
+  `json_match`, or `composite`.
 - `timeout`: maximum wall-clock time for the agent run.
-- `max_turns`: planned control for agent loop length once exposed by CLI/runtime.
 - `tags`: optional labels such as `smoke`, `file-edit`, `pytest`, `terminal`.
-- `verifier_type`: planned selector for `command`, `file_contains`, or `python`.
 - `expected_files`: optional explicit file-level checks.
+- `permission_mode`: optional per-task permission mode override.
+- `settings`: optional task settings merged into the isolated temporary config.
+- `runtime`: optional runtime. `standard` runs directly in the copied fixture;
+  `trial_workspace` runs in an isolated trial workspace and applies successful
+  changes back before verification.
+- `expected_tool_calls`: optional list of tool names that must appear in the
+  captured session, useful for delegation-oriented tasks.
 
-Task rows will remain human-readable. If a task needs complex logic, move that
-logic into a verifier script and reference it from the row.
+Planned fields:
+
+- `max_turns`: planned control for agent loop length once exposed by CLI/runtime.
+
+Task rows remain human-readable. If a task needs complex logic, move that logic
+into a verifier script and reference it from the row.
 
 ## Result Schema
 
@@ -234,31 +248,34 @@ Examples:
 Verifier logic will stay deterministic and external to the model. The agent can
 say a task is done, but the harness decides whether it is actually done.
 
-Initial verifier type:
+Implemented verifier types:
 
 - `command`: run a shell command in the final workspace and use exit code as
   pass/fail.
-
-Planned verifier types:
-
-- `file_contains`: check a file contains or exactly equals expected content.
+- `file_contains`: check a file contains expected content.
 - `file_absent`: check that unwanted files were not created.
-- `python`: run a Python verifier script that emits structured JSON.
+- `json_match`: compare a JSON file with an expected value.
 - `composite`: combine multiple checks into one score.
+
+Planned verifier type:
+
+- `python`: run a Python verifier script that emits structured JSON.
 
 All verifiers will produce the same normalized output:
 
 ```json
 {
   "passed": true,
-  "score": 1.0,
+  "type": "command",
   "exit_code": 0,
   "stdout": "...",
-  "stderr": "..."
+  "stderr": "...",
+  "details": {}
 }
 ```
 
-This keeps the door open for partial credit and RL-style reward functions later.
+This keeps the door open for partial credit and RL-style reward functions later,
+but the current local harness still treats each verifier as pass/fail.
 
 ## Runtime Requirements
 
@@ -271,9 +288,9 @@ The harness needs a few runtime affordances from TermPilot to become robust:
 - stable session/trajectory export
 - timeout handling that marks a task as failed without corrupting later runs
 
-The current prototype handles some of this externally by writing temporary
-settings and running in a temporary working directory. That is a good start.
-Long term, the CLI will expose explicit eval-friendly controls such as:
+The current runner now combines both approaches: it still writes a temporary
+config home per task, and it also calls TermPilot with explicit eval-friendly
+CLI controls:
 
 ```bash
 python -m termpilot \
@@ -284,8 +301,9 @@ python -m termpilot \
   --json-summary
 ```
 
-If CLI flags are too invasive initially, environment variables are a useful
-intermediate step:
+The same permission override is also exposed through the environment for test
+harnesses or external runners that do not want to change their CLI command
+shape:
 
 ```bash
 TERMPILOT_CONFIG_DIR=/tmp/termpilot-eval/config
@@ -295,10 +313,10 @@ TERMPILOT_PERMISSION_MODE=bypassPermissions
 ## Trajectory Capture
 
 Session JSONL is already useful for recovery, but eval and training need a more
-portable trajectory format. A conversion layer will be added rather than
-changing session storage directly.
+portable trajectory format. TermPilot now keeps this as a conversion layer
+rather than changing session storage directly.
 
-Planned module:
+Implemented module:
 
 ```text
 src/termpilot/trajectory.py
@@ -310,6 +328,10 @@ Responsibilities:
 - reconstruct user, assistant, tool-use, and tool-result turns
 - attach task metadata and verifier outcome
 - emit one JSON object per task
+
+The local eval runner copies each task's temporary session file to
+`<task-id>.session.jsonl` and appends one portable row to `trajectories.jsonl`
+next to `results.jsonl`.
 
 Target shape:
 
@@ -345,9 +367,17 @@ Trajectory files will enable:
 
 ## Reporting And Failure Analysis
 
-The harness will generate a compact human report after every run.
+The harness now generates a compact human report and a machine-readable summary
+after every run.
 
-Planned report shape:
+Implemented artifacts:
+
+- `summary.json`: aggregate pass/fail/timeout counts, pass rate, by-tag and
+  by-model buckets, slowest tasks, failure pointers, and artifact paths.
+- `report.md`: a human-readable report for quickly reviewing a run without
+  opening every individual task log.
+
+Report shape:
 
 ```text
 Pass rate: 4/5
@@ -363,15 +393,16 @@ Common signals:
 - 1 task edited tests but not implementation
 ```
 
-The report will eventually include:
+The current report includes:
 
 - pass rate by tag
 - pass rate by model
 - slowest tasks
-- tasks with no file diff
-- tasks with no verifier run observed in logs
-- most common tool errors
-- changed-files summary
+- failure rows with log, diff, verifier status, missing expected files, and
+  whether the workspace was preserved
+
+Future report signals may add tasks with no file diff, tasks with no verifier
+run observed in logs, common tool errors, and changed-files summaries.
 
 This closes the loop: benchmark results will point directly to changes in
 system prompts, tool descriptions, permissions, context compaction, and tool
@@ -413,26 +444,27 @@ choices improve reliability.
 
 ### Phase 1: Stabilize The Local Harness
 
-- Keep `evals/run_eval.py` as the first runner.
-- Expand `evals/tasks.jsonl` to 10-20 small tasks.
-- Ensure failed workspaces, logs, and diffs are easy to inspect.
-- Make the result schema stable.
-- Add a short report file per run.
+- Implemented `evals/run_eval.py` as the first runner.
+- Expanded the smoke task set to 10 tasks covering pytest, file edits, file
+  deletion, JSON output, package creation, and composite checks.
+- Failed workspaces, logs, diffs, copied sessions, trajectories, summary JSON,
+  and report Markdown are now written as run artifacts.
+- Continue tightening the result schema as more tasks are added.
 
 ### Phase 2: Add Eval-Friendly CLI Controls
 
-- Add explicit permission-mode override.
-- Add working-directory override if needed.
-- Add JSON summary output.
+- Implemented explicit `--permission-mode` override.
+- Implemented `--cwd` working-directory override.
+- Implemented one-shot `--json-summary` output.
 - Add optional max-turn or max-tool-loop controls.
-- Avoid depending on terminal-rendered text for metrics.
+- Continue reducing dependence on terminal-rendered text for metrics.
 
 ### Phase 3: Add Trajectory Export
 
-- Implement `src/termpilot/trajectory.py`.
-- Attach session file path to eval result rows.
-- Emit `trajectories.jsonl` beside `results.jsonl`.
-- Include verifier outcome in each trajectory.
+- Implemented `src/termpilot/trajectory.py`.
+- Eval result rows now include the copied session file path.
+- The runner emits `trajectories.jsonl` beside `results.jsonl`.
+- Each trajectory includes task metadata and verifier outcome.
 
 ### Phase 4: Improve Isolation
 
@@ -465,4 +497,3 @@ choices improve reliability.
 - Do not let eval-only concerns pollute the interactive CLI experience.
 - Add CLI/runtime affordances only when the harness has a concrete need.
 - Make every benchmark result actionable for prompt, tool, or runtime changes.
-

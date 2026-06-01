@@ -16,6 +16,8 @@ from termpilot.agent_tasks import (
 from termpilot.tools.agent import (
     AgentTool, AgentSendTool, AgentTaskGetTool, AgentTaskListTool, MAX_BATCH_TASKS,
 )
+from termpilot.workspace import TrialWorkspaceConfig, TrialWorkspaceManager
+from termpilot.workspace.runtime import set_active_trial_workspace
 
 
 @pytest.fixture(autouse=True)
@@ -81,6 +83,39 @@ class TestAgentToolCall:
         assert tasks[0].agent_type == "Explore"
         assert tasks[0].status == "completed"
         assert load_agent_messages(tasks[0].id)[-1]["content"] == result
+
+    @pytest.mark.asyncio
+    async def test_runtime_task_records_active_trial_workspace(self, monkeypatch, tmp_path):
+        source = tmp_path / "source"
+        source.mkdir()
+        workspace = TrialWorkspaceManager(
+            TrialWorkspaceConfig(root=str(tmp_path / "trials"), backend="copy", prefer_git_worktree=False)
+        ).create(source)
+
+        async def fake_run_agent(self, subagent_type, config, prompt):
+            return "done"
+
+        monkeypatch.setattr(AgentTool, "_run_agent", fake_run_agent)
+        set_active_trial_workspace(workspace)
+        try:
+            await AgentTool().call(
+                subagent_type="Explore",
+                description="Inspect",
+                prompt="Inspect files.",
+            )
+        finally:
+            set_active_trial_workspace(None)
+
+        task = list_agent_tasks()[0]
+        assert task.metadata["workspace_id"] == workspace.id
+        assert task.metadata["workspace_path"] == workspace.workspace_path
+
+        listed = await AgentTaskListTool().call()
+        detail = json.loads(await AgentTaskGetTool().call(agent_id=task.id))
+
+        assert f"workspace={workspace.id}" in listed
+        assert detail["workspace_id"] == workspace.id
+        assert detail["workspace_path"] == workspace.workspace_path
 
     @pytest.mark.asyncio
     async def test_background_agent_returns_launch_notification(self, monkeypatch):

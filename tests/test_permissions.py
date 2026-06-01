@@ -331,3 +331,18 @@ class TestBuildPermissionContext:
     def test_with_working_directory(self, tmp_settings, env_clean):
         ctx = build_permission_context("/my/project")
         assert ctx.working_directory == "/my/project"
+
+    def test_permission_mode_override_argument(self, tmp_settings, env_clean):
+        tmp_settings({"permissions": {"mode": "default"}})
+
+        ctx = build_permission_context(mode_override="bypassPermissions")
+
+        assert ctx.mode == PermissionMode.BYPASS
+
+    def test_permission_mode_override_env(self, tmp_settings, env_clean, monkeypatch):
+        tmp_settings({"permissions": {"mode": "default"}})
+        monkeypatch.setenv("TERMPILOT_PERMISSION_MODE", "plan")
+
+        ctx = build_permission_context()
+
+        assert ctx.mode == PermissionMode.PLAN

@@ -921,6 +921,7 @@ def build_permission_context(
         working_directory: str = "",
         allowed_tools: list[str] | None = None,
         disallowed_tools: list[str] | None = None,
+        mode_override: str | PermissionMode | None = None,
 ) -> PermissionContext:
     """构建权限上下文。
 
@@ -933,8 +934,14 @@ def build_permission_context(
     settings = _read_settings()
     perm_config = settings.get("permissions", {})
 
-    # 解析权限模式
-    mode_str = perm_config.get("mode") or perm_config.get("defaultMode", "default")
+    # 解析权限模式。CLI/env overrides are intentionally runtime-only and do
+    # not mutate settings.json, which keeps eval harness runs reproducible.
+    mode_str = (
+        mode_override.value if isinstance(mode_override, PermissionMode) else mode_override
+    ) or os.environ.get("TERMPILOT_PERMISSION_MODE") or perm_config.get("mode") or perm_config.get(
+        "defaultMode",
+        "default",
+    )
     try:
         mode = PermissionMode(mode_str)
     except ValueError:

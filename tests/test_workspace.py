@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 from pathlib import Path
+from dataclasses import replace
 
 import pytest
 
-from termpilot.workspace import TrialWorkspaceConfig, TrialWorkspaceManager, get_trial_workspace_config
+from termpilot.workspace import (
+    TrialWorkspaceConfig,
+    TrialWorkspaceManager,
+    decide_trial_workspace,
+    get_trial_workspace_config,
+)
+from termpilot.workspace.apply import WorkspaceConflictError
 from termpilot.workspace.runtime import (
     get_active_trial_workspace,
     map_path_to_active_workspace,
@@ -18,6 +25,7 @@ def test_trial_workspace_config_defaults(tmp_settings, env_clean):
     config = get_trial_workspace_config()
 
     assert config.enabled is False
+    assert config.auto_start is True
     assert config.backend == "auto"
     assert config.prefer_git_worktree is True
     assert ".git" in config.copy_exclude_patterns
@@ -27,6 +35,7 @@ def test_trial_workspace_config_loads_settings(tmp_settings, env_clean):
     tmp_settings({
         "trialWorkspace": {
             "enabled": True,
+            "autoStart": False,
             "backend": "copy",
             "root": "/tmp/termpilot-trials",
             "keepFailed": False,
@@ -39,6 +48,7 @@ def test_trial_workspace_config_loads_settings(tmp_settings, env_clean):
     config = get_trial_workspace_config()
 
     assert config.enabled is True
+    assert config.auto_start is False
     assert config.backend == "copy"
     assert config.root == "/tmp/termpilot-trials"
     assert config.keep_failed is False
@@ -144,6 +154,76 @@ def test_diff_and_apply_workspace_changes(tmp_path):
     assert applied.changed_files == 2
     assert (source / "app.py").read_text(encoding="utf-8") == "new\n"
     assert (source / "extra.txt").read_text(encoding="utf-8") == "added\n"
+
+
+def test_diff_ignores_generated_egg_info_contents(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "app.py").write_text("old\n", encoding="utf-8")
+    manager = TrialWorkspaceManager(
+        TrialWorkspaceConfig(root=str(tmp_path / "trials"), backend="copy", prefer_git_worktree=False)
+    )
+    workspace = manager.create(source)
+    workspace_path = Path(workspace.workspace_path)
+    (workspace_path / "app.py").write_text("new\n", encoding="utf-8")
+    egg_info = workspace_path / "src" / "termpilot.egg-info"
+    egg_info.mkdir(parents=True)
+    (egg_info / "PKG-INFO").write_text("generated metadata\n", encoding="utf-8")
+
+    diff = manager.diff(workspace.id)
+
+    assert diff.changed_files == 1
+    assert diff.changes[0].path == "app.py"
+    assert "egg-info" not in diff.unified_diff
+
+
+def test_apply_rejects_source_drift(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    source_file = source / "app.py"
+    source_file.write_text("old\n", encoding="utf-8")
+    manager = TrialWorkspaceManager(
+        TrialWorkspaceConfig(root=str(tmp_path / "trials"), backend="copy", prefer_git_worktree=False)
+    )
+    workspace = manager.create(source)
+    workspace_path = Path(workspace.workspace_path)
+    (workspace_path / "app.py").write_text("trial\n", encoding="utf-8")
+    source_file.write_text("user changed\n", encoding="utf-8")
+
+    with pytest.raises(WorkspaceConflictError) as exc:
+        manager.apply(workspace.id)
+
+    assert exc.value.conflicts[0].path == "app.py"
+    assert source_file.read_text(encoding="utf-8") == "user changed\n"
+
+
+def test_cleanup_stale_preserves_active_by_default(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "app.py").write_text("x = 1\n", encoding="utf-8")
+    manager = TrialWorkspaceManager(
+        TrialWorkspaceConfig(root=str(tmp_path / "trials"), backend="copy", ttl_hours=1)
+    )
+    workspace = manager.create(source)
+    stale = replace(workspace, created_at="2000-01-01T00:00:00+00:00")
+    manager._write_metadata(stale)
+
+    assert manager.cleanup_stale() == []
+
+    manager.mark_state(workspace.id, "stopped")
+    removed = manager.cleanup_stale()
+
+    assert removed == [workspace.id]
+    assert manager.get(workspace.id) is None
+
+
+def test_trial_workspace_policy_is_conservative():
+    enabled = TrialWorkspaceConfig(enabled=True)
+
+    assert decide_trial_workspace("请分析这个项目结构", enabled).should_start is False
+    assert decide_trial_workspace("Fix the failing test", enabled).should_start is True
+    assert decide_trial_workspace("帮我修改 hello.py", enabled).should_start is True
+    assert decide_trial_workspace("帮我修改 hello.py", TrialWorkspaceConfig(enabled=False)).should_start is False
 
 
 def test_active_workspace_path_mapping(tmp_path):

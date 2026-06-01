@@ -12,11 +12,14 @@ from termpilot.workspace.runtime import (
     map_path_to_active_workspace,
     set_active_trial_workspace,
 )
+from termpilot.workspace.policy import TrialPolicyResult, decide_trial_workspace
 
 __all__ = [
     "TrialWorkspace",
     "TrialWorkspaceConfig",
     "TrialWorkspaceManager",
+    "TrialPolicyResult",
+    "decide_trial_workspace",
     "get_active_trial_workspace",
     "get_trial_workspace_config",
     "map_command_to_active_workspace",

@@ -310,12 +310,23 @@ class AgentTool:
             foreground: bool = True,
             metadata: dict[str, Any] | None = None,
     ):
+        task_metadata = dict(metadata or {})
+        try:
+            from termpilot.workspace import get_active_trial_workspace
+
+            active_workspace = get_active_trial_workspace()
+            if active_workspace is not None:
+                task_metadata.setdefault("workspace_id", active_workspace.id)
+                task_metadata.setdefault("workspace_path", active_workspace.workspace_path)
+                task_metadata.setdefault("source_cwd", active_workspace.source_cwd)
+        except Exception:
+            pass
         runtime_task = create_agent_task(
             agent_type,
             prompt,
             description,
             foreground=foreground,
-            metadata=metadata,
+            metadata=task_metadata,
         )
         update_agent_task(runtime_task.id, status="running")
         return runtime_task
@@ -894,7 +905,9 @@ class AgentTaskListTool:
         for task in tasks:
             desc = f": {task.description}" if task.description else ""
             mode = "background" if not task.foreground else "foreground"
-            lines.append(f"[{task.status}] {task.id} {task.agent_type}{desc} ({mode})")
+            workspace = task.metadata.get("workspace_id") if isinstance(task.metadata, dict) else ""
+            workspace_suffix = f" workspace={workspace}" if workspace else ""
+            lines.append(f"[{task.status}] {task.id} {task.agent_type}{desc} ({mode}){workspace_suffix}")
         return "\n".join(lines)
 
 
@@ -931,4 +944,22 @@ class AgentTaskGetTool:
         task = get_agent_task(agent_id)
         if not task:
             return f"Error: AgentTask '{agent_id}' not found."
-        return json.dumps(task.to_dict(), ensure_ascii=False, indent=2)
+        payload = task.to_dict()
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        if metadata:
+            # Keep workspace linkage near the top so compact UI previews do not hide it.
+            payload = {
+                "id": payload.get("id"),
+                "agent_type": payload.get("agent_type"),
+                "description": payload.get("description"),
+                "status": payload.get("status"),
+                "workspace_id": metadata.get("workspace_id", ""),
+                "workspace_path": metadata.get("workspace_path", ""),
+                "source_cwd": metadata.get("source_cwd", ""),
+                **{
+                    key: value
+                    for key, value in payload.items()
+                    if key not in {"id", "agent_type", "description", "status"}
+                },
+            }
+        return json.dumps(payload, ensure_ascii=False, indent=2)

@@ -421,7 +421,23 @@ async def _cmd_trial(args: str, ctx: dict) -> CommandResult:
         workspace = get_active_trial_workspace()
         if workspace is None:
             return CommandResult(output="No active trial workspace.")
-        diff = manager.apply(workspace.id)
+        try:
+            diff = manager.apply(workspace.id)
+        except Exception as exc:
+            from termpilot.workspace.apply import WorkspaceConflictError
+
+            if isinstance(exc, WorkspaceConflictError):
+                lines = [
+                    "Cannot apply trial workspace because the source project changed since it was created.",
+                    "Conflicting files:",
+                ]
+                for conflict in exc.conflicts[:10]:
+                    lines.append(f"  - {conflict.path}")
+                if len(exc.conflicts) > 10:
+                    lines.append(f"  ... and {len(exc.conflicts) - 10} more")
+                lines.append("Review the source changes, then create a fresh trial workspace or merge manually.")
+                return CommandResult(output="\n".join(lines))
+            raise
         set_active_trial_workspace(None)
         return CommandResult(output=(
             "Applied trial workspace changes to source project.\n"
@@ -446,12 +462,21 @@ async def _cmd_trial(args: str, ctx: dict) -> CommandResult:
         set_active_trial_workspace(None)
         if workspace is None:
             return CommandResult(output="Trial mode was not active.")
+        manager.mark_state(workspace.id, "stopped")
         return CommandResult(output=f"Trial mode stopped. Workspace kept at: {workspace.workspace_path}")
+
+    if action in {"clean", "cleanup"}:
+        include_active = "--all" in rest
+        removed = manager.cleanup_stale(include_active=include_active)
+        if not removed:
+            return CommandResult(output="No stale trial workspaces to clean.")
+        return CommandResult(output="Cleaned stale trial workspaces:\n" + "\n".join(f"  - {item}" for item in removed))
 
     if action == "config":
         lines = [
             "Trial workspace config:",
             f"  enabled: {config.enabled}",
+            f"  autoStart: {config.auto_start}",
             f"  backend: {config.backend}",
             f"  root: {config.root}",
             f"  preferGitWorktree: {config.prefer_git_worktree}",
@@ -463,7 +488,7 @@ async def _cmd_trial(args: str, ctx: dict) -> CommandResult:
     return CommandResult(output=(
         "Unknown trial action.\n"
         "Usage: /trial start [--copy] | /trial status | /trial diff | "
-        "/trial apply | /trial discard [id] | /trial stop | /trial list"
+        "/trial apply | /trial discard [id] | /trial stop | /trial list | /trial clean"
     ))
 
 

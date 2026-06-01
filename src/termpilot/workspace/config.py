@@ -29,6 +29,7 @@ class TrialWorkspaceConfig:
     """Policy for creating isolated trial workspaces."""
 
     enabled: bool = False
+    auto_start: bool = True
     backend: str = "auto"
     root: str = "~/.termpilot/trial-workspaces"
     keep_failed: bool = True
@@ -73,6 +74,7 @@ def get_trial_workspace_config() -> TrialWorkspaceConfig:
         {
           "trialWorkspace": {
             "enabled": true,
+            "autoStart": true,
             "backend": "auto",
             "root": "~/.termpilot/trial-workspaces",
             "preferGitWorktree": true
@@ -92,6 +94,7 @@ def get_trial_workspace_config() -> TrialWorkspaceConfig:
 
     return TrialWorkspaceConfig(
         enabled=_get_bool(raw, "enabled", default=False),
+        auto_start=_get_bool(raw, "autoStart", "auto_start", default=True),
         backend=str(raw.get("backend") or "auto"),
         root=str(raw.get("root") or "~/.termpilot/trial-workspaces"),
         keep_failed=_get_bool(raw, "keepFailed", "keep_failed", default=True),

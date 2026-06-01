@@ -40,6 +40,7 @@ binary_search.py
 utils.py
 
 main.py
+!evals/templates/**/*.py
 .termpilot/
 .mcp.json
 
