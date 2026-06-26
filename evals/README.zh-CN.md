@@ -121,3 +121,174 @@ TermPilot，成功后把变更 apply 回源 fixture，再验证源 workspace 的
 当前 smoke task set 覆盖基础文件创建、bug 修复、多文件编辑、命令使用、
 结构化 verifier、权限拒绝后的恢复、trial workspace apply，以及子 agent
 delegation 检查。
+
+## 手动验证 Cases
+
+Eval runner 本身是非交互式的，但同一批任务行为可以在 TermPilot 交互模式里手动验证。
+这些 case 适合在把场景沉淀成自动化 eval 之前，用来调试 UX、权限确认、工具卡片、
+trial workspace 流程和子代理委派。
+
+建议使用一次性目录：
+
+```bash
+mkdir -p /tmp/termpilot-eval-manual
+```
+
+### Case 1：基础文件创建
+
+```bash
+mkdir -p /tmp/termpilot-eval-manual/create-cli
+cd /tmp/termpilot-eval-manual/create-cli
+uv run termpilot
+```
+
+输入：
+
+```text
+Create hello.py and test_hello.py. hello.py should read a name from argv and print 'Hello, <name>!'. Add a pytest test and run it.
+```
+
+预期：
+
+- `hello.py` 和 `test_hello.py` 存在。
+- `python -m pytest -q` 通过。
+
+### Case 2：修复失败测试
+
+```bash
+cp -R evals/templates/fix-python-test /tmp/termpilot-eval-manual/fix-python-test
+cd /tmp/termpilot-eval-manual/fix-python-test
+uv run termpilot
+```
+
+输入：
+
+```text
+Fix the failing pytest test in this project. Run pytest before finishing.
+```
+
+预期：
+
+- TermPilot 修改 `calc.py`。
+- `python -m pytest -q` 通过。
+
+### Case 3：文件内容 verifier 行为
+
+```bash
+cp -R evals/templates/write-markdown-note /tmp/termpilot-eval-manual/write-markdown-note
+cd /tmp/termpilot-eval-manual/write-markdown-note
+uv run termpilot
+```
+
+输入：
+
+```text
+Create notes.md with a short note that contains the exact phrase 'TermPilot eval ready'.
+```
+
+预期：
+
+- `notes.md` 存在。
+- `grep "TermPilot eval ready" notes.md` 能找到该短语。
+
+### Case 4：删除文件并保留指定文件
+
+```bash
+cp -R evals/templates/remove-temp-file /tmp/termpilot-eval-manual/remove-temp-file
+cd /tmp/termpilot-eval-manual/remove-temp-file
+uv run termpilot
+```
+
+输入：
+
+```text
+Remove temp.log from this workspace. Do not remove keep.txt.
+```
+
+预期：
+
+- `temp.log` 被删除。
+- `keep.txt` 仍然存在，并包含 `keep me`。
+
+### Case 5：权限拒绝后的恢复
+
+```bash
+cp -R evals/templates/permission-denial-recovery /tmp/termpilot-eval-manual/permission-denial-recovery
+cd /tmp/termpilot-eval-manual/permission-denial-recovery
+uv run termpilot
+```
+
+可以配置针对 `secret.txt` 的 deny rule，或者在权限提示时手动拒绝。
+
+输入：
+
+```text
+First try to inspect secret.txt. That access is intentionally denied. Recover by reading fallback.txt and create result.txt containing only the phrase fallback-ok.
+```
+
+预期：
+
+- TermPilot 在读取 `secret.txt` 被拒绝后能恢复。
+- `result.txt` 存在，并包含 `fallback-ok`。
+
+### Case 6：Trial Workspace Apply
+
+```bash
+cp -R evals/templates/trial-workspace-apply /tmp/termpilot-eval-manual/trial-workspace-apply
+cd /tmp/termpilot-eval-manual/trial-workspace-apply
+uv run termpilot
+```
+
+命令和输入：
+
+```text
+/trial start --copy
+Update app.py so MESSAGE is exactly 'trial applied'.
+/trial diff
+/trial apply
+```
+
+预期：
+
+- `/trial diff` 能看到 `app.py` 变更。
+- `/trial apply` 前源 workspace 不变。
+- `/trial apply` 后源目录的 `app.py` 包含 `trial applied`。
+
+### Case 7：子代理委派
+
+```bash
+cp -R evals/templates/subagent-delegation /tmp/termpilot-eval-manual/subagent-delegation
+cd /tmp/termpilot-eval-manual/subagent-delegation
+uv run termpilot
+```
+
+输入：
+
+```text
+Use the agent tool with subagent_type=Explore to inspect alpha.txt and beta.txt, then create delegation-summary.md with both code words: alpha-ready and beta-ready.
+```
+
+预期：
+
+- UI 出现 `Explore` 或 `Delegation` agent 卡片。
+- `delegation-summary.md` 存在。
+- 文件包含 `alpha-ready` 和 `beta-ready`。
+
+### Case 8：Eval Runner Smoke Check
+
+这个 case 用来验证非交互式 harness 本身：
+
+```bash
+uv run python evals/run_eval.py --dry-run
+uv run python evals/run_eval.py --id write-markdown-note --keep-workspaces fail
+uv run python evals/run_eval.py --id remove-temp-file --keep-workspaces fail
+uv run python evals/run_eval.py --id write-json-config --keep-workspaces fail
+cat evals/runs/latest.txt
+```
+
+预期：
+
+- `--dry-run` 列出全部 smoke tasks。
+- 选中的任务通过。
+- latest run 目录包含 `summary.json`、`report.md`、`results.jsonl` 和
+  `trajectories.jsonl`。
