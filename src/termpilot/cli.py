@@ -15,28 +15,22 @@ from typing import Any
 
 import click
 from rich.console import Console
-from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from termpilot.api import create_client, query_with_tools
-from termpilot.attachments import process_attachments
-from termpilot.commands import dispatch_command, parse_slash_command
+from termpilot.api import create_client
 from termpilot.config import ensure_settings_template, get_config_home, get_effective_model
 from termpilot.context import build_system_prompt
 from termpilot.hooks import HookEvent, dispatch_hooks
 from termpilot.mcp import MCPManager
 from termpilot.messages import create_assistant_message, create_user_message
 from termpilot.permissions import (
-    PermissionBehavior,
-    PermissionContext,
     PermissionMode,
     PermissionResult,
     build_permission_context,
 )
 from termpilot.prompt_utils import ask_with_esc
-from termpilot.routing import build_routing_reminder
 from termpilot.session import SessionStorage, list_sessions, load_session
 from termpilot.skills import discover_and_load_skills
 from termpilot.tools import get_all_tools
@@ -46,114 +40,47 @@ DEFAULT_MODEL = "gpt-4o"
 INTERACTIVE_SLASH_COMMANDS = frozenset({"model", "rewind"})
 STATE_CHANGING_SLASH_COMMANDS = frozenset({"clear", "compact", "rewind"})
 
+# repl 子系统 re-export（P1-2 重构：实现搬到 termpilot.repl.*，此处保留旧导入路径）
+from termpilot.repl.permissions_ui import (  # noqa: E402,F401
+    ask_permission_choice as _ask_permission_choice_impl,
+    permission_prompt as _permission_prompt_impl,
+    permission_result_from_choice as _permission_result_from_choice_impl,
+)
+from termpilot.repl.prompt_handler import (  # noqa: E402,F401
+    assistant_appears_to_wait_for_user,
+    queued_slash_name,
+    should_defer_slash_for_user_reply,
+)
+from termpilot.repl.stream_renderer import (  # noqa: E402,F401
+    stream_response_with_tools,
+)
+
 console = Console()
 logger = logging.getLogger(__name__)
 
 
 def _assistant_appears_to_wait_for_user(text: str) -> bool:
     """Heuristic for assistant turns that end by asking the user to decide."""
-    tail = text.strip()[-600:].lower()
-    if not tail:
-        return False
-    if tail.endswith(("?", "？", "吗", "吗？")):
-        return True
-    wait_markers = (
-        "confirm",
-        "choose",
-        "select",
-        "which",
-        "would you like",
-        "should i",
-        "确认",
-        "选择",
-        "哪",
-        "是否",
-        "要删除",
-    )
-    return any(marker in tail for marker in wait_markers)
+    return assistant_appears_to_wait_for_user(text)
 
 
 def _queued_slash_name(command: Any) -> str:
-    value = getattr(command, "value", {})
-    if isinstance(value, dict):
-        return str(value.get("name", "")).lower()
-    return ""
+    return queued_slash_name(command)
 
 
 def _should_defer_slash_for_user_reply(command: Any, awaiting_user_reply: bool) -> bool:
     """Delay state-changing slash commands queued during an assistant question."""
-    if not awaiting_user_reply:
-        return False
-    if getattr(command, "mode", "") != "slash_command":
-        return False
-    value = getattr(command, "value", {})
-    if not isinstance(value, dict) or not value.get("queued_during_active_turn"):
-        return False
-    return _queued_slash_name(command) in STATE_CHANGING_SLASH_COMMANDS
+    return should_defer_slash_for_user_reply(command, awaiting_user_reply)
 
 
 def _permission_result_from_choice(tool_name: str, choice: Any) -> PermissionResult:
     """Map permission menu output to a permission result."""
-    if isinstance(choice, str):
-        normalized_choice = choice.strip().lower()
-        if normalized_choice.startswith("allow once"):
-            choice = "allow_once"
-        elif normalized_choice.startswith("always allow"):
-            choice = "always_allow"
-        elif normalized_choice.startswith("always deny"):
-            choice = "always_deny"
-        elif normalized_choice.startswith("deny"):
-            choice = "deny"
-
-    if choice in ("allow_once", "1"):
-        return PermissionResult(behavior=PermissionBehavior.ALLOW)
-
-    if choice in ("always_allow", "2"):
-        return PermissionResult(
-            behavior=PermissionBehavior.ALLOW,
-            rule_updates=[{
-                "tool_name": tool_name,
-                "pattern": "*",
-                "behavior": "allow",
-            }],
-        )
-
-    if choice in ("deny", "3"):
-        return PermissionResult(
-            behavior=PermissionBehavior.DENY,
-            message="用户拒绝",
-        )
-
-    if choice in ("always_deny", "4"):
-        return PermissionResult(
-            behavior=PermissionBehavior.DENY,
-            message="用户拒绝",
-            rule_updates=[{
-                "tool_name": tool_name,
-                "pattern": "*",
-                "behavior": "deny",
-            }],
-        )
-
-    # Be conservative, but do not persist a deny rule for cancelled/unknown output.
-    return PermissionResult(
-        behavior=PermissionBehavior.DENY,
-        message="用户取消或未选择",
-    )
+    return _permission_result_from_choice_impl(tool_name, choice)
 
 
 def _ask_permission_choice() -> str | None:
     """Ask for permission using stable numeric input."""
-    console.print("[bold]选择操作[/]")
-    console.print("  [1] Allow once    (本次允许)")
-    console.print("  [2] Always allow  (始终允许同类操作)")
-    console.print("  [3] Deny          (拒绝)")
-    console.print("  [4] Always deny   (始终拒绝同类操作)")
-    console.print()
-    try:
-        return input("选择 [1-4]: ").strip()
-    except (KeyboardInterrupt, EOFError):
-        return None
+    return _ask_permission_choice_impl()
 
 
 async def _permission_prompt(
@@ -162,138 +89,15 @@ async def _permission_prompt(
         message: str,
         ui: QuietUI | None = None,
 ) -> PermissionResult:
-    """权限确认提示。对应 TS useCanUseTool.tsx 的用户交互部分。"""
-    if ui:
-        ui.clear_status()
-    console.print()
-    console.rule("[bold yellow]权限请求[/]")
-    console.print(f"[bold]{tool_name}[/] — {message}")
-
-    # 显示操作摘要
-    if tool_name == "bash":
-        cmd = tool_input.get("command", "")
-        console.print(f"  [dim]命令:[/] {cmd[:200]}")
-    elif tool_name in ("write_file", "edit_file"):
-        console.print(f"  [dim]文件:[/] {tool_input.get('file_path', '')}")
-
-    console.print()
-
-    try:
-        loop = asyncio.get_event_loop()
-        choice = await loop.run_in_executor(
-            None,
-            _ask_permission_choice,
-        )
-    except (KeyboardInterrupt, EOFError):
-        choice = None
-
-    return _permission_result_from_choice(tool_name, choice)
+    """权限确认提示（实现见 termpilot.repl.permissions_ui）。"""
+    return await _permission_prompt_impl(tool_name, tool_input, message, ui=ui)
 
 
 async def _stream_response_with_tools(
-        client: Any,
-        model: str,
-        system_prompt: str,
-        messages: list[dict],
-        tools: list,
-        storage: SessionStorage | None = None,
-        permission_context: PermissionContext | None = None,
-        session_id: str = "",
-        cost_tracker: Any | None = None,
-        ui: QuietUI | None = None,
-        client_format: str = "openai",
-        on_interactive_input: Any = None,
-        is_current_turn: Any = None,
+        *args: Any, **kwargs: Any,
 ) -> str:
-    """带工具调用的流式响应。
-
-    对应 TS query.ts 主循环 + REPL.tsx 的渲染逻辑。
-    使用回调实现实时渲染：
-    - on_text: 文本流实时渲染 Markdown
-    - on_tool_call: 显示工具调用过程和结果
-    """
-    logger.debug("_stream_response_with_tools: model=%s, messages=%d, tools=%d",
-                 model, len(messages), len(tools))
-    full_response = ""
-
-    def on_text(chunk: str) -> None:
-        nonlocal full_response
-        full_response += chunk
-
-    def on_tool_call(name: str, input_data: dict, result: str) -> None:
-        if is_current_turn and not is_current_turn():
-            return
-        # 记录工具调用到 session
-        if storage:
-            storage.record_tool_call(name, input_data, result)
-
-    def on_assistant_message(text: str, tool_calls: list) -> None:
-        if is_current_turn and not is_current_turn():
-            return
-        # 记录 assistant 中间消息到 session（确保崩溃可恢复）
-        if storage and text and text.strip():
-            storage.record_assistant_message(text)
-
-    def on_event(event: dict[str, Any]) -> None:
-        if is_current_turn and not is_current_turn():
-            return
-        if on_interactive_input:
-            event_type = event.get("type")
-            tool_name = event.get("name")
-            if event_type == "permission_requested" or (
-                    event_type == "tool_started"
-                    and tool_name in {"ask_user_question", "exit_plan_mode"}
-            ):
-                on_interactive_input()
-        if ui:
-            ui.handle_event(event)
-
-    if ui:
-        ui.handle_event({"type": "status_started", "text": "Coalescing…"})
-    try:
-        full_response = await query_with_tools(
-            client=client,
-            model=model,
-            system_prompt=system_prompt,
-            messages=messages,
-            tools=tools,
-            on_text=on_text,
-            on_tool_call=on_tool_call,
-            on_event=on_event,
-            permission_context=permission_context,
-            on_permission_ask=lambda tn, ti, m: _permission_prompt(tn, ti, m, ui=ui),
-            session_id=session_id,
-            cost_tracker=cost_tracker,
-            client_format=client_format,
-            on_assistant_message=on_assistant_message,
-        )
-    except Exception:
-        if ui:
-            ui.handle_event({"type": "status_cleared"})
-        raise
-
-    if is_current_turn and not is_current_turn():
-        if ui:
-            ui.handle_event({"type": "status_cleared"})
-        raise asyncio.CancelledError()
-
-    # 最终渲染完整响应
-    if full_response.strip():
-        if ui:
-            ui.handle_event({"type": "status_cleared"})
-        console.print()
-        console.print(Markdown(full_response))
-    elif ui:
-        ui.handle_event({"type": "status_cleared"})
-
-    # 显示本轮费用
-    if cost_tracker:
-        total = cost_tracker.total_usage
-        if total.total_tokens > 0:
-            console.print()
-            console.print(f"[dim]{cost_tracker.format_per_response(model, total)}[/]")
-
-    return full_response
+    """带工具调用的流式响应（实现见 termpilot.repl.stream_renderer）。"""
+    return await stream_response_with_tools(*args, **kwargs)
 
 
 async def _async_single_prompt(prompt: str, model: str, *, json_summary: bool = False) -> None:
@@ -462,7 +266,21 @@ def _print_connection_error(exc: Exception) -> None:
 
 
 async def _async_interactive(model: str, resume_session_id: str | None = None) -> None:
-    """交互循环模式。"""
+    """交互循环模式（composition root）。
+
+    P1-2 重构后只负责组装 repl 子系统（state / InputHandler / REPLLoop /
+    prompt handlers），业务逻辑在 termpilot.repl 包内，可独立测试。
+    """
+    from termpilot.repl.input_handler import InputHandler
+    from termpilot.repl.loop import REPLLoop
+    from termpilot.repl.prompt_handler import (
+        ReplDeps,
+        handle_prompt,
+        handle_slash_command,
+        handle_task_notification,
+    )
+    from termpilot.repl.state import InteractiveState
+
     logger.debug("=== interactive mode: model=%s, resume_session_id=%s", model, resume_session_id)
     storage = SessionStorage()
     ui = QuietUI(console)
@@ -511,7 +329,30 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
         mcp_manager=mcp_manager,
     )
     logger.debug("system prompt built: %d chars", len(system_prompt))
-    messages = list(history_messages)
+
+    from termpilot.token_tracker import CostTracker
+    cost_tracker = CostTracker()
+
+    # ── 共享状态（替代原先的 nonlocal 闭包变量）──
+    state = InteractiveState(
+        messages=list(history_messages),
+        client=client,
+        client_format=client_format,
+        model=model,
+        system_prompt=system_prompt,
+        permission_context=permission_context,
+    )
+
+    def refresh_runtime() -> str:
+        state.client, state.client_format = create_client()
+        state.model = get_effective_model(DEFAULT_MODEL)
+        state.system_prompt = build_system_prompt(
+            model=state.model,
+            enabled_tools=enabled_tools,
+            mcp_manager=mcp_manager,
+        )
+        logger.debug("runtime refreshed after /model: model=%s, format=%s", state.model, state.client_format)
+        return state.model
 
     # 构建 MCP 状态信息
     mcp_info = ""
@@ -519,22 +360,6 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
         mcp_tools = mcp_manager.get_tools()
         if mcp_tools:
             mcp_info = f"\nMCP: {len(mcp_tools)} 工具 ({', '.join(t['full_name'] for t in mcp_tools[:3])}{'...' if len(mcp_tools) > 3 else ''})"
-
-    from termpilot.token_tracker import CostTracker
-    cost_tracker = CostTracker()
-    title_generated = False  # 首轮对话后生成标题
-
-    def refresh_runtime() -> str:
-        nonlocal client, client_format, model, system_prompt
-        client, client_format = create_client()
-        model = get_effective_model(DEFAULT_MODEL)
-        system_prompt = build_system_prompt(
-            model=model,
-            enabled_tools=enabled_tools,
-            mcp_manager=mcp_manager,
-        )
-        logger.debug("runtime refreshed after /model: model=%s, format=%s", model, client_format)
-        return model
 
     console.print(
         Panel(
@@ -550,11 +375,11 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
         )
     )
 
+    # ── UI：prompt_toolkit ──
     from termpilot.completer import SlashCompleter
     from prompt_toolkit import PromptSession
     from prompt_toolkit.history import FileHistory
     from prompt_toolkit.key_binding import KeyBindings
-    from prompt_toolkit.patch_stdout import patch_stdout
     from prompt_toolkit.styles import Style as PtStyle
 
     slash_completer = SlashCompleter()
@@ -566,30 +391,13 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
     })
 
     def _get_prompt_message():
-        if permission_context.mode == PermissionMode.PLAN:
+        if state.permission_context.mode == PermissionMode.PLAN:
             return [("class:plan-prompt", "plan"), ("class:prompt", " > ")]
-        if permission_context.mode.value == "acceptEdits":
+        if state.permission_context.mode.value == "acceptEdits":
             return [("class:edits-prompt", "edits"), ("class:prompt", " > ")]
         return [("class:prompt", "> ")]
 
-    active_processing_task: asyncio.Task[None] | None = None
     kb = KeyBindings()
-    input_enabled = asyncio.Event()
-    input_enabled.set()
-    awaiting_user_reply = False
-    turn_generation = 0
-
-    def _next_turn_generation() -> int:
-        nonlocal turn_generation
-        turn_generation += 1
-        return turn_generation
-
-    def _invalidate_current_turn() -> None:
-        nonlocal turn_generation
-        turn_generation += 1
-
-    def _is_current_turn(run_id: int) -> bool:
-        return run_id == turn_generation
 
     def _cleanup_interrupted_work() -> None:
         from termpilot.queue import cancel_running_agents
@@ -602,34 +410,22 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
     @kb.add("s-tab")
     def _cycle_mode(event):
         from termpilot.permissions import cycle_permission_mode
-        nonlocal permission_context
-        next_mode = cycle_permission_mode(permission_context)
-        permission_context.mode = next_mode
+        next_mode = cycle_permission_mode(state.permission_context)
+        state.permission_context.mode = next_mode
         event.app.invalidate()
 
     @kb.add("escape", eager=True)
     def _interrupt_or_clear(event):
-        nonlocal active_processing_task
-        if active_processing_task is not None and not active_processing_task.done():
-            _invalidate_current_turn()
+        if state.is_processing:
+            state.invalidate_current_turn()
             _cleanup_interrupted_work()
-            active_processing_task.cancel()
+            state.active_processing_task.cancel()
             ui.clear_status()
             console.print("\n[yellow]Interrupted current response.[/]")
             event.app.current_buffer.reset()
             event.app.invalidate()
             return
         event.app.current_buffer.reset()
-
-    def _suspend_prompt_input() -> None:
-        """Temporarily stop the main prompt so interactive tools can read stdin."""
-        input_enabled.clear()
-        try:
-            app = pt_session.app
-            if getattr(app, "is_running", False):
-                app.exit(result="")
-        except Exception as exc:
-            logger.debug("failed to suspend prompt input: %s", exc)
 
     history_file = get_config_home() / "prompt_history"
     pt_session = PromptSession(
@@ -642,352 +438,35 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
         key_bindings=kb,
     )
 
-    # ── 消息队列 + drain 模式 ──
-    from termpilot.queue import QueuedCommand, Priority, get_main_queue
+    # ── 组装 repl 子系统 ──
+    from termpilot.queue import get_main_queue
 
     queue = get_main_queue()
-    # 共享状态
-    exit_flag = asyncio.Event()
 
-    def _is_main_thread_command(cmd: QueuedCommand) -> bool:
-        """主线程只处理发给主线程的队列命令。"""
-        if cmd.agent_id != "":
-            return False
-        return not _should_defer_slash_for_user_reply(cmd, awaiting_user_reply)
+    input_handler = InputHandler(pt_session, queue, state, console)
 
-    async def _input_collector() -> None:
-        """收集用户输入，只负责入队，不直接修改会话状态。"""
-        while not exit_flag.is_set():
-            try:
-                await input_enabled.wait()
-                with patch_stdout(raw=True):
-                    user_input = await pt_session.prompt_async()
+    deps = ReplDeps(
+        console=console,
+        ui=ui,
+        storage=storage,
+        tools=tools,
+        mcp_manager=mcp_manager,
+        cost_tracker=cost_tracker,
+        queue=queue,
+        state=state,
+        refresh_runtime=refresh_runtime,
+        suspend_input=input_handler.suspend,
+    )
 
-                user_input = user_input.encode("utf-8", errors="surrogatepass").decode("utf-8", errors="replace")
-
-                if not user_input.strip():
-                    continue
-
-                # ── Slash 命令：入队，由 drain loop 串行处理 ──
-                parsed = parse_slash_command(user_input)
-                if parsed:
-                    cmd_name, cmd_args = parsed
-                    queued_during_active_turn = (
-                        active_processing_task is not None
-                        and not active_processing_task.done()
-                    )
-                    queue.enqueue(QueuedCommand(
-                        mode="slash_command",
-                        value={
-                            "name": cmd_name,
-                            "args": cmd_args,
-                            "queued_during_active_turn": queued_during_active_turn,
-                        },
-                        priority=Priority.NEXT,
-                        origin="user",
-                    ))
-                    continue
-
-                # ── 普通输入：入队 ──
-                queue.enqueue(QueuedCommand(
-                    mode="prompt",
-                    value=user_input,
-                    priority=Priority.NEXT,
-                    origin="user",
-                ))
-
-            except KeyboardInterrupt:
-                console.print("\n[dim]再见！[/]")
-                exit_flag.set()
-                return
-
-    async def _drain_loop() -> None:
-        """主处理循环：dequeue → 处理 → 检查后台 agent。"""
-        nonlocal title_generated, active_processing_task
-
-        while not exit_flag.is_set():
-            # 1. 等待下一个命令
-            cmd = await queue.dequeue(timeout=0.5, filter_fn=_is_main_thread_command)
-            if cmd is None:
-                continue
-
-            completed = True
-
-            # 2. 按 mode 分发
-            if cmd.mode in {"prompt", "slash_command"}:
-                handler = _handle_prompt(cmd) if cmd.mode == "prompt" else _handle_slash_command(cmd)
-                active_processing_task = asyncio.create_task(handler)
-                try:
-                    await active_processing_task
-                except asyncio.CancelledError:
-                    completed = False
-                    ui.clear_status()
-                    _cleanup_interrupted_work()
-                    logger.debug("processing interrupted: mode=%s", cmd.mode)
-                finally:
-                    active_processing_task = None
-                    input_enabled.set()
-            elif cmd.mode == "task_notification":
-                _handle_task_notification(cmd)
-
-            # 3. TaskListWatcher：enqueue LATER 优先级
-            if cmd.mode == "prompt" and completed:
-                from termpilot.tools.task import get_next_available_task, _save_tasks_to_disk
-                next_task = get_next_available_task()
-                if next_task:
-                    next_task.owner = "main"
-                    next_task.status = "in_progress"
-                    _save_tasks_to_disk()
-                    console.print(f"\n[dim]Auto-picking task #{next_task.id}: {next_task.subject}[/]")
-                    queue.enqueue(QueuedCommand(
-                        mode="prompt",
-                        value=(
-                            f"Continue with task #{next_task.id}: {next_task.subject}\n"
-                            f"{next_task.description}"
-                        ),
-                        priority=Priority.LATER,
-                        origin="task-watcher",
-                    ))
-
-    async def _handle_prompt(cmd: QueuedCommand) -> None:
-        """处理 prompt 命令：hook → 附件 → API 调用。"""
-        nonlocal title_generated, awaiting_user_reply
-        user_input = cmd.value
-
-        # UserPromptSubmit Hook
-        hook_results = await dispatch_hooks(
-            event=HookEvent.USER_PROMPT_SUBMIT,
-            session_id=storage.session_id or "",
-            prompt=user_input,
-        )
-        blocked = False
-        for hr in hook_results:
-            if hr.exit_code == 2:
-                console.print(f"[yellow]Hook blocked prompt: {hr.stderr or 'blocked'}[/]")
-                blocked = True
-                break
-        if blocked:
-            return
-
-        hook_feedback = [hr.stdout for hr in hook_results if hr.exit_code == 0 and hr.stdout.strip()]
-        effective_input = user_input
-        if hook_feedback:
-            effective_input += "\n\n<user-prompt-submit-hook>\n" + "\n".join(
-                hook_feedback) + "\n</user-prompt-submit-hook>"
-        routing_reminder = build_routing_reminder(user_input)
-        if routing_reminder:
-            effective_input += f"\n\n{routing_reminder}"
-
-        from termpilot.workspace import (
-            TrialWorkspaceManager,
-            decide_trial_workspace,
-            get_active_trial_workspace,
-            get_trial_workspace_config,
-            set_active_trial_workspace,
-        )
-        active_trial_workspace = get_active_trial_workspace()
-        if active_trial_workspace is None and permission_context.mode.value != "plan":
-            trial_config = get_trial_workspace_config()
-            trial_decision = decide_trial_workspace(user_input, trial_config)
-            if trial_decision.should_start:
-                try:
-                    trial_workspace = TrialWorkspaceManager(trial_config).create(
-                        purpose=user_input[:160],
-                    )
-                    set_active_trial_workspace(trial_workspace)
-                    active_trial_workspace = trial_workspace
-                    console.print(
-                        f"[dim]Trial workspace started automatically: {trial_workspace.id}[/dim]"
-                    )
-                except Exception as exc:
-                    logger.warning("failed to auto-start trial workspace: %s", exc)
-
-        attachment_blocks = process_attachments(effective_input)
-        if attachment_blocks:
-            content_blocks = [{"type": "text", "text": effective_input}] + attachment_blocks
-            messages.append(create_user_message(content_blocks))
-        else:
-            messages.append(create_user_message(effective_input))
-        storage.record_user_message(user_input)
-
-        if permission_context.mode.value == "plan":
-            messages.append({
-                "role": "user",
-                "content": (
-                    "<system-reminder>"
-                    "You are in plan mode (read-only). Do NOT attempt to write, edit, "
-                    "or modify any files. Only use-only tools: read_file, glob, grep, "
-                    "bash (read-only only). When ready, call exit_plan_mode with your plan."
-                    "</system-reminder>"
-                ),
-            })
-        active_trial_workspace = get_active_trial_workspace()
-        if active_trial_workspace is not None:
-            messages.append({
-                "role": "user",
-                "content": (
-                    "<system-reminder>"
-                    "Trial workspace mode is active. Tool reads, writes, edits, searches, and bash commands "
-                    "are redirected to an isolated trial workspace, not directly to the source project. "
-                    f"Source project: {active_trial_workspace.source_cwd}. "
-                    f"Trial workspace: {active_trial_workspace.workspace_path}. "
-                    "Tell the user to review with /trial diff and apply with /trial apply when appropriate."
-                    "</system-reminder>"
-                ),
-            })
-
-        logger.debug("sending to API: %d messages in context", len(messages))
-
-        run_id = _next_turn_generation()
-        try:
-            full_response = await _stream_response_with_tools(
-                client, model, system_prompt, messages, tools, storage,
-                permission_context=permission_context,
-                session_id=storage.session_id or "",
-                cost_tracker=cost_tracker,
-                ui=ui,
-                client_format=client_format,
-                on_interactive_input=_suspend_prompt_input,
-                is_current_turn=lambda: _is_current_turn(run_id),
-            )
-        except Exception as api_exc:
-            _print_connection_error(api_exc)
-            return
-
-        messages.append({**create_assistant_message(full_response), "_timestamp": time.time()})
-        storage.record_assistant_message(full_response)
-        awaiting_user_reply = _assistant_appears_to_wait_for_user(full_response)
-        logger.debug("response received: %d chars, total messages: %d", len(full_response), len(messages))
-
-        if not title_generated and len(messages) >= 2:
-            from termpilot.session import generate_session_title
-            title = await generate_session_title(messages, client, model, client_format)
-            if title:
-                storage.save_metadata("custom-title", title)
-                logger.debug("session title generated: %s", title)
-            title_generated = True
-
-        await dispatch_hooks(
-            event=HookEvent.STOP,
-            session_id=storage.session_id or "",
-        )
-
-    async def _handle_slash_command(cmd: QueuedCommand) -> None:
-        """串行处理 slash command，避免与正在运行的 turn 并发修改上下文。"""
-        nonlocal awaiting_user_reply
-        value = cmd.value if isinstance(cmd.value, dict) else {}
-        cmd_name = str(value.get("name", ""))
-        cmd_args = str(value.get("args", ""))
-        if not cmd_name:
-            return
-
-        logger.debug("slash command: /%s %s", cmd_name, cmd_args[:50])
-        if cmd_name in INTERACTIVE_SLASH_COMMANDS:
-            _suspend_prompt_input()
-        cmd_context = {
-            "messages": messages,
-            "system_prompt": system_prompt,
-            "client": client,
-            "model": model,
-            "mcp_manager": mcp_manager,
-            "ui": ui,
-            "client_format": client_format,
-            "refresh_runtime": refresh_runtime,
-            "storage": storage,
-        }
-        result = await dispatch_command(cmd_name, cmd_args, cmd_context)
-        logger.debug(
-            "command result: exit_repl=%s, should_query=%s, output=%d chars",
-            result.exit_repl,
-            result.should_query,
-            len(result.output),
-        )
-
-        if result.exit_repl:
-            console.print("[dim]再见！[/]")
-            exit_flag.set()
-            return
-
-        if result.output:
-            console.print()
-            console.print(Markdown(result.output))
-
-        if result.new_messages is not None:
-            if len(result.new_messages) == 0:
-                messages.clear()
-                if cmd_name == "clear":
-                    dropped = queue.discard(
-                        lambda queued: (
-                            queued.mode == "prompt"
-                            and queued.origin == "user"
-                            and queued.agent_id == ""
-                        )
-                    )
-                    if dropped:
-                        logger.debug("clear discarded %d pending user prompts", dropped)
-                console.print("[dim]对话已清除[/]")
-            else:
-                messages[:] = result.new_messages
-
-        if result.should_query:
-            messages.append(create_user_message(result.output))
-            storage.record_user_message(result.output)
-            run_id = _next_turn_generation()
-            try:
-                full_response = await _stream_response_with_tools(
-                    client, model, system_prompt, messages, tools, storage,
-                    permission_context=permission_context,
-                    session_id=storage.session_id or "",
-                    cost_tracker=cost_tracker,
-                    ui=ui,
-                    client_format=client_format,
-                    on_interactive_input=_suspend_prompt_input,
-                    is_current_turn=lambda: _is_current_turn(run_id),
-                )
-            except Exception as api_exc:
-                _print_connection_error(api_exc)
-            else:
-                messages.append({**create_assistant_message(full_response), "_timestamp": time.time()})
-                storage.record_assistant_message(full_response)
-                awaiting_user_reply = _assistant_appears_to_wait_for_user(full_response)
-                await dispatch_hooks(
-                    event=HookEvent.STOP,
-                    session_id=storage.session_id or "",
-                )
-
-    def _handle_task_notification(cmd: QueuedCommand) -> None:
-        """处理后台子 agent 完成通知。"""
-        data = cmd.value if isinstance(cmd.value, dict) else {}
-        agent_id = data.get("agent_id", "?")
-        subagent_type = data.get("subagent_type", "agent")
-        status = data.get("status", "unknown")
-
-        if status == "completed":
-            summary = str(data.get("summary", ""))
-            result_path = str(data.get("result_path", ""))
-            original_size = data.get("original_size", 0)
-            console.print(f"\n[green]Agent {subagent_type} ({agent_id}) completed[/]")
-            if summary:
-                console.print(Markdown(summary))
-            if result_path:
-                console.print(f"[dim]Full result saved to: {result_path}[/]")
-            handoff = (
-                f"[Background agent {subagent_type}/{agent_id} completed]\n"
-                f"Summary:\n{summary or '(no summary)'}\n\n"
-                f"Full result path: {result_path or '(not saved)'}\n"
-                f"Original size: {original_size} characters\n"
-                "Use read_file on the result path if more detail is needed."
-            )
-            messages.append(create_assistant_message(handoff))
-            storage.record_assistant_message(handoff)
-        else:
-            error = data.get("error", "unknown error")
-            console.print(f"\n[red]Agent {subagent_type} ({agent_id}) failed: {error}[/]")
+    drain_loop = REPLLoop(state, queue, deps)
+    drain_loop.register("prompt", handle_prompt)
+    drain_loop.register("slash_command", handle_slash_command)
+    drain_loop.register("task_notification", handle_task_notification)
 
     # ── 启动 collector + drain 并发运行 ──
     await asyncio.gather(
-        _input_collector(),
-        _drain_loop(),
+        input_handler.collect_loop(),
+        drain_loop.run(),
         return_exceptions=True,
     )
 
@@ -998,6 +477,9 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
 
     # 清理 MCP 连接
     await mcp_manager.shutdown()
+
+
+
 
 
 def _setup_logging() -> None:
