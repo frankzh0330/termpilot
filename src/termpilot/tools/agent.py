@@ -166,6 +166,20 @@ def _get_all_agents() -> dict[str, dict[str, Any]]:
 # 在权限层强制只读，即便 LLM 忽略 prompt 指令也无法执行写操作。
 _READONLY_AGENT_TYPES = frozenset({"Explore", "Plan", "Verification"})
 
+# 所有子代理一律禁用的工具（P0-1B，对应 Claude Code 的 ALL_AGENT_DISALLOWED_TOOLS）：
+# - agent 控制类：防止子代理嵌套委派、绕过父级编排
+# - plan mode 类：子代理不应控制会话级 plan mode 状态
+# 注意：必须同时应用于"白名单"路径——自定义 agent 在 frontmatter 的 tools 里
+# 写上 agent 也会被这里拦截，而不只是 general-purpose 的排除路径。
+ALL_AGENT_DISALLOWED_TOOLS = frozenset({
+    "agent",
+    "agent_send",
+    "agent_task_list",
+    "agent_task_get",
+    "enter_plan_mode",
+    "exit_plan_mode",
+})
+
 
 def _build_subagent_permission_context(agent_type: str) -> "PermissionContext":
     """构造子代理的受限权限上下文（修复 P0-1：子 Agent 无权限检查）。
@@ -703,17 +717,20 @@ class AgentTool:
         from termpilot.config import get_effective_model
         from termpilot.tools import get_all_tools
 
-        # 构建工具集
+        # 构建工具集（P0-1B：两条路径都套用全局禁止列表，防嵌套/防 plan mode 篡改）
         all_tools = get_all_tools()
         allowed_tool_names = config.get("tools")
 
         if allowed_tool_names is not None:
-            agent_tools = [t for t in all_tools if t.name in allowed_tool_names]
-        else:
-            # general-purpose: all regular tools, but no agent control tools to avoid nested orchestration.
             agent_tools = [
                 t for t in all_tools
-                if t.name not in {"agent", "agent_send", "agent_task_list", "agent_task_get"}
+                if t.name in allowed_tool_names and t.name not in ALL_AGENT_DISALLOWED_TOOLS
+            ]
+        else:
+            # general-purpose: all regular tools except the globally disallowed ones.
+            agent_tools = [
+                t for t in all_tools
+                if t.name not in ALL_AGENT_DISALLOWED_TOOLS
             ]
 
         if not agent_tools:
