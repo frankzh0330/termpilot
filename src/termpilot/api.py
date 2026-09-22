@@ -660,11 +660,30 @@ async def _execute_tools_concurrent(
                 "content": result_text,
             }
 
+        # return_exceptions=True：单个工具的意外异常（如 hook/结果持久化失败）
+        # 只标记该工具失败，不丢弃同批其他并行工具的结果（修复 P0-3）。
         safe_results = await asyncio.gather(
             *[_run_safe(tb, tool) for tb, tool in safe_tasks],
-            return_exceptions=False,
+            return_exceptions=True,
         )
-        tool_results.extend(safe_results)
+        for (tb, _tool), result in zip(safe_tasks, safe_results):
+            if isinstance(result, BaseException):
+                logger.exception("parallel tool %s crashed unexpectedly", tb["name"])
+                error_text = f"工具执行错误: {result}"
+                if on_event:
+                    on_event({
+                        "type": "tool_failed",
+                        "name": tb["name"],
+                        "input": tb["input"],
+                        "result": error_text,
+                    })
+                tool_results.append({
+                    "role": "tool",
+                    "tool_call_id": tb["id"],
+                    "content": error_text,
+                })
+            else:
+                tool_results.append(result)
 
     # 2. 不安全的串行跑（对应 TS runToolsSerially）
     for tb, tool in unsafe_tasks:
