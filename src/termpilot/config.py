@@ -29,6 +29,10 @@ from termpilot.utils.atomic_write import atomic_write
 
 logger = logging.getLogger(__name__)
 
+# settings.json 内存缓存（P1-1）：见 get_settings() 的 docstring。
+_settings_cache: dict[str, Any] | None = None
+_settings_cache_stat: tuple[int, int] | None = None  # (st_mtime_ns, st_size)
+
 
 _PROVIDER_ALIASES = {
     "anthropic": "anthropic",
@@ -316,6 +320,7 @@ def ensure_settings_template() -> bool:
             run_setup_wizard()
         else:
             atomic_write(path, _SETTINGS_TEMPLATE)
+            invalidate_settings_cache()
             logger.debug("created settings template at %s", path)
         return True
     except OSError:
@@ -404,6 +409,7 @@ def run_setup_wizard() -> None:
         settings_path,
         json.dumps(settings, indent=2, ensure_ascii=False) + "\n",
     )
+    invalidate_settings_cache()
 
     from rich.console import Console
     from rich.panel import Panel
@@ -488,6 +494,7 @@ def save_model_selection(model: str, raw_provider: str | None = None) -> None:
         settings_path,
         json.dumps(settings, indent=2, ensure_ascii=False) + "\n",
     )
+    invalidate_settings_cache()
 
 
 def run_model_picker() -> dict[str, Any]:
@@ -554,7 +561,15 @@ def is_placeholder_key(key: str | None) -> bool:
 
 
 def get_settings() -> dict[str, Any]:
-    """读取 settings.json 配置。
+    """读取 settings.json 配置（带内存缓存，修复 P1-1）。
+
+    一次 API 调用周期内 get_settings 会被读 5-10 次（provider、api_key、
+    base_url、model、hooks、workspace、sandbox 等都读），每次重读磁盘纯属
+    冗余 IO。改为 mtime_ns+size 校验的内存缓存：文件未变直接返回缓存，
+    所有写入路径（config + permissions）写盘后调用 invalidate_settings_cache()。
+
+    注意：返回的是缓存对象本身（读-改-写调用方直接修改后写盘并失效缓存），
+    不要长期持有或脱离写路径修改。
 
     对应 TS 中读取 settings.json 的逻辑。
     settings.json 示例:
@@ -566,17 +581,33 @@ def get_settings() -> dict[str, Any]:
       }
     }
     """
+    global _settings_cache, _settings_cache_stat
     settings_path = get_settings_path()
-    if not settings_path.exists():
+    try:
+        stat = settings_path.stat()
+    except OSError:
         logger.debug("settings.json not found at %s", settings_path)
+        invalidate_settings_cache()
         return {}
+    if _settings_cache is not None and _settings_cache_stat == (stat.st_mtime_ns, stat.st_size):
+        return _settings_cache
     try:
         data = json.loads(settings_path.read_text(encoding="utf-8"))
         logger.debug("loaded settings.json: %d keys (%s)", len(data), ", ".join(data.keys()))
-        return data
     except (json.JSONDecodeError, OSError):
         logger.debug("settings.json parse failed")
+        invalidate_settings_cache()
         return {}
+    _settings_cache = data
+    _settings_cache_stat = (stat.st_mtime_ns, stat.st_size)
+    return data
+
+
+def invalidate_settings_cache() -> None:
+    """失效 settings 内存缓存。写入 settings.json 后必须调用。"""
+    global _settings_cache, _settings_cache_stat
+    _settings_cache = None
+    _settings_cache_stat = None
 
 
 def get_settings_env() -> dict[str, str]:

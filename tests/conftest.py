@@ -10,6 +10,7 @@ import pytest
 @pytest.fixture
 def tmp_settings(tmp_path, monkeypatch):
     """创建临时 settings.json 并 mock 路径。"""
+    from termpilot.config import invalidate_settings_cache
     settings_file = tmp_path / ".termpilot" / "settings.json"
     settings_file.parent.mkdir(parents=True)
 
@@ -19,8 +20,10 @@ def tmp_settings(tmp_path, monkeypatch):
 
     monkeypatch.setattr("termpilot.config.get_settings_path", lambda: settings_file)
     monkeypatch.setattr("termpilot.permissions.get_settings_path", lambda: settings_file)
+    invalidate_settings_cache()
     _write({})
-    return _write
+    yield _write
+    invalidate_settings_cache()
 
 
 @pytest.fixture

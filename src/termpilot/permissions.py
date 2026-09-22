@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
-from termpilot.config import get_settings_path
+from termpilot.config import get_settings_path, invalidate_settings_cache
 from termpilot.utils.atomic_write import atomic_write
 
 logger = logging.getLogger(__name__)
@@ -810,6 +810,8 @@ def _write_settings(settings: dict) -> None:
     path = get_settings_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write(path, json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
+    # settings.json 有跨模块内存缓存（config._settings_cache），写完必须失效
+    invalidate_settings_cache()
 
 
 def load_permission_rules() -> list[PermissionRule]:

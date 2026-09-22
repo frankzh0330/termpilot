@@ -221,3 +221,58 @@ class TestGetContextWindow:
         monkeypatch.setenv("TERMPILOT_CONTEXT_WINDOW", "100000")
         from termpilot.config import get_context_window
         assert get_context_window() == 100_000
+
+
+class TestSettingsCache:
+    """P1-1：settings.json 内存缓存行为。"""
+
+    def test_cache_hit_returns_same_object(self, tmp_settings):
+        """文件未变时返回缓存对象（不重读磁盘）。"""
+        tmp_settings({"env": {"ANTHROPIC_API_KEY": "sk-1"}})
+        from termpilot.config import get_settings
+        first = get_settings()
+        second = get_settings()
+        assert first is second  # 缓存命中，同一对象
+
+    def test_external_file_change_refreshes_cache(self, tmp_settings):
+        """外部修改 settings.json（mtime/size 变化）后缓存自动刷新。"""
+        tmp_settings({"env": {"ANTHROPIC_API_KEY": "sk-1"}})
+        from termpilot.config import get_settings
+        assert get_settings()["env"]["ANTHROPIC_API_KEY"] == "sk-1"
+        path = tmp_settings({"env": {"ANTHROPIC_API_KEY": "sk-2"}})
+        # 确保写入后 mtime 与 size 和缓存不同（sk-2 与 sk-1 长度相同，需 mtime 变化）
+        import os, time
+        os.utime(path, ns=(0, 0))
+        assert get_settings()["env"]["ANTHROPIC_API_KEY"] == "sk-2"
+
+    def test_invalidate_forces_reload(self, tmp_settings):
+        """主动失效后强制重读。"""
+        tmp_settings({"env": {"ANTHROPIC_API_KEY": "sk-1"}})
+        from termpilot.config import get_settings, invalidate_settings_cache
+        get_settings()
+        invalidate_settings_cache()
+        tmp_settings({"env": {"ANTHROPIC_API_KEY": "sk-2"}})
+        assert get_settings()["env"]["ANTHROPIC_API_KEY"] == "sk-2"
+
+    def test_save_model_selection_invalidates_cache(self, tmp_settings, monkeypatch):
+        """写路径（save_model_selection）写盘后缓存被失效。"""
+        tmp_settings({"provider": "openai", "env": {"OPENAI_API_KEY": "k"}})
+        from termpilot.config import get_settings, save_model_selection
+        get_settings()
+        save_model_selection("gpt-5", raw_provider="openai")
+        fresh = get_settings()
+        assert fresh["model"] == "gpt-5"
+        assert fresh["env"]["OPENAI_MODEL"] == "gpt-5"
+
+    def test_permission_write_invalidates_cache(self, tmp_settings):
+        """permissions._write_settings 写盘后缓存被失效。"""
+        tmp_settings({"permissions": {"mode": "default"}})
+        from termpilot.config import get_settings
+        from termpilot.permissions import save_permission_rule, PermissionRule, PermissionBehavior
+        get_settings()
+        save_permission_rule(PermissionRule(
+            tool_name="bash", pattern="git push:*",
+            behavior=PermissionBehavior.DENY, source="user_settings",
+        ), force=True)
+        rules = get_settings()["permissions"]["rules"]
+        assert any(r["tool_name"] == "bash" for r in rules)
