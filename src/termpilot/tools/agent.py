@@ -161,6 +161,31 @@ def _get_all_agents() -> dict[str, dict[str, Any]]:
     return agents
 
 
+# 名义上只读的子代理：工具集虽做了白名单，但白名单内的 bash 仍可写/删，
+# 单靠 system-prompt 的"READ-ONLY"约束（软约束）不可信。这里用 PLAN 模式
+# 在权限层强制只读，即便 LLM 忽略 prompt 指令也无法执行写操作。
+_READONLY_AGENT_TYPES = frozenset({"Explore", "Plan", "Verification"})
+
+
+def _build_subagent_permission_context(agent_type: str) -> "PermissionContext":
+    """构造子代理的受限权限上下文（修复 P0-1：子 Agent 无权限检查）。
+
+    子代理无法与用户交互（on_permission_ask=None），所以不能依赖 ASK 流程：
+    - 只读子代理（Explore/Plan/Verification）→ PLAN 模式：写类工具在权限层直接 DENY。
+    - general-purpose 子代理 → DONT_ASK 模式：需要确认的 UNSAFE 工具自动 DENY，
+      避免子代理在没有用户确认的情况下静默执行危险操作。
+    这等价于 Claude Code 的 shouldAvoidPermissionPrompts 语义。
+    """
+    from termpilot.permissions import PermissionContext, PermissionMode
+
+    mode = (
+        PermissionMode.PLAN
+        if agent_type in _READONLY_AGENT_TYPES
+        else PermissionMode.DONT_ASK
+    )
+    return PermissionContext(mode=mode)
+
+
 class AgentTool:
     """Agent 工具：委派任务给子代理。"""
 
@@ -763,7 +788,10 @@ class AgentTool:
                 on_text=None,
                 on_tool_call=None,
                 on_event=_subagent_event if parent_on_event else None,
-                permission_context=None,
+                # 子代理用受限权限上下文而非 None（修复 P0-1）：
+                # 只读代理 → PLAN，general-purpose → DONT_ASK。
+                # on_permission_ask 保持 None：子代理无法交互，需要确认的工具会被自动拒绝。
+                permission_context=_build_subagent_permission_context(agent_type),
                 on_permission_ask=None,
                 client_format=client_format,
             )
