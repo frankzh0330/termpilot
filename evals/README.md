@@ -126,3 +126,175 @@ appends a compact row to `evals/runs/index.jsonl` and writes
 The smoke task set covers basic file creation, bug fixes, multi-file edits,
 command use, structured verifiers, permission-denial recovery, trial workspace
 apply, and sub-agent delegation checks.
+
+## Manual Validation Cases
+
+The eval runner is non-interactive by design, but the same task behaviors can be
+validated manually in TermPilot's interactive mode. These cases are useful when
+debugging UX, permissions, tool cards, trial workspace flow, or sub-agent
+delegation before turning the scenario into an automated eval.
+
+Use a disposable workspace for manual tests:
+
+```bash
+mkdir -p /tmp/termpilot-eval-manual
+```
+
+### Case 1: Basic File Creation
+
+```bash
+mkdir -p /tmp/termpilot-eval-manual/create-cli
+cd /tmp/termpilot-eval-manual/create-cli
+uv run termpilot
+```
+
+Prompt:
+
+```text
+Create hello.py and test_hello.py. hello.py should read a name from argv and print 'Hello, <name>!'. Add a pytest test and run it.
+```
+
+Expected:
+
+- `hello.py` and `test_hello.py` exist.
+- `python -m pytest -q` passes.
+
+### Case 2: Fix A Failing Test
+
+```bash
+cp -R evals/templates/fix-python-test /tmp/termpilot-eval-manual/fix-python-test
+cd /tmp/termpilot-eval-manual/fix-python-test
+uv run termpilot
+```
+
+Prompt:
+
+```text
+Fix the failing pytest test in this project. Run pytest before finishing.
+```
+
+Expected:
+
+- TermPilot edits `calc.py`.
+- `python -m pytest -q` passes.
+
+### Case 3: File Contains Verifier Behavior
+
+```bash
+cp -R evals/templates/write-markdown-note /tmp/termpilot-eval-manual/write-markdown-note
+cd /tmp/termpilot-eval-manual/write-markdown-note
+uv run termpilot
+```
+
+Prompt:
+
+```text
+Create notes.md with a short note that contains the exact phrase 'TermPilot eval ready'.
+```
+
+Expected:
+
+- `notes.md` exists.
+- `grep "TermPilot eval ready" notes.md` finds the phrase.
+
+### Case 4: File Deletion With Preservation
+
+```bash
+cp -R evals/templates/remove-temp-file /tmp/termpilot-eval-manual/remove-temp-file
+cd /tmp/termpilot-eval-manual/remove-temp-file
+uv run termpilot
+```
+
+Prompt:
+
+```text
+Remove temp.log from this workspace. Do not remove keep.txt.
+```
+
+Expected:
+
+- `temp.log` is removed.
+- `keep.txt` still exists and contains `keep me`.
+
+### Case 5: Permission Denial Recovery
+
+```bash
+cp -R evals/templates/permission-denial-recovery /tmp/termpilot-eval-manual/permission-denial-recovery
+cd /tmp/termpilot-eval-manual/permission-denial-recovery
+uv run termpilot
+```
+
+Configure a deny rule for `secret.txt`, or manually deny access when prompted.
+
+Prompt:
+
+```text
+First try to inspect secret.txt. That access is intentionally denied. Recover by reading fallback.txt and create result.txt containing only the phrase fallback-ok.
+```
+
+Expected:
+
+- TermPilot recovers after denied access to `secret.txt`.
+- `result.txt` exists and contains `fallback-ok`.
+
+### Case 6: Trial Workspace Apply
+
+```bash
+cp -R evals/templates/trial-workspace-apply /tmp/termpilot-eval-manual/trial-workspace-apply
+cd /tmp/termpilot-eval-manual/trial-workspace-apply
+uv run termpilot
+```
+
+Commands and prompt:
+
+```text
+/trial start --copy
+Update app.py so MESSAGE is exactly 'trial applied'.
+/trial diff
+/trial apply
+```
+
+Expected:
+
+- `/trial diff` shows the `app.py` change.
+- The source workspace is unchanged before `/trial apply`.
+- After `/trial apply`, source `app.py` contains `trial applied`.
+
+### Case 7: Sub-Agent Delegation
+
+```bash
+cp -R evals/templates/subagent-delegation /tmp/termpilot-eval-manual/subagent-delegation
+cd /tmp/termpilot-eval-manual/subagent-delegation
+uv run termpilot
+```
+
+Prompt:
+
+```text
+Use the agent tool with subagent_type=Explore to inspect alpha.txt and beta.txt, then create delegation-summary.md with both code words: alpha-ready and beta-ready.
+```
+
+Expected:
+
+- The UI shows an `Explore` or `Delegation` agent card.
+- `delegation-summary.md` exists.
+- The file contains both `alpha-ready` and `beta-ready`.
+
+### Case 8: Eval Runner Smoke Check
+
+This case validates the non-interactive harness itself:
+
+```bash
+uv run python evals/run_eval.py --dry-run
+uv run python evals/run_eval.py --id write-markdown-note --keep-workspaces fail
+uv run python evals/run_eval.py --id remove-temp-file --keep-workspaces fail
+uv run python evals/run_eval.py --id write-json-config --keep-workspaces fail
+cat evals/runs/latest.txt
+```
+
+Expected:
+
+- `--dry-run` lists all smoke tasks.
+- The selected tasks pass.
+- The latest run directory contains `summary.json`, `report.md`,
+  `results.jsonl`, and `trajectories.jsonl`.
