@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
+from termpilot.utils.atomic_write import atomic_write
+
 
 AgentTaskStatus = Literal["pending", "running", "completed", "failed", "cancelled"]
 AgentExecutionMode = Literal["local", "remote"]
@@ -101,7 +103,7 @@ def _get_agent_tasks() -> dict[str, AgentTask]:
 def _save_agent_tasks_to_disk() -> None:
     path = _index_path()
     data = {task_id: task.to_dict() for task_id, task in _get_agent_tasks().items()}
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write(path, json.dumps(data, ensure_ascii=False, indent=2))
 
 
 def reset_agent_tasks() -> None:

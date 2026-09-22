@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from termpilot.prompt_utils import ask_with_esc
+from termpilot.utils.atomic_write import atomic_write
 
 logger = logging.getLogger(__name__)
 
@@ -314,7 +315,7 @@ def ensure_settings_template() -> bool:
         if sys.stdin.isatty():
             run_setup_wizard()
         else:
-            path.write_text(_SETTINGS_TEMPLATE, encoding="utf-8")
+            atomic_write(path, _SETTINGS_TEMPLATE)
             logger.debug("created settings template at %s", path)
         return True
     except OSError:
@@ -399,9 +400,9 @@ def run_setup_wizard() -> None:
     }
 
     settings_path.parent.mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(
+    atomic_write(
+        settings_path,
         json.dumps(settings, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
     )
 
     from rich.console import Console
@@ -483,9 +484,9 @@ def save_model_selection(model: str, raw_provider: str | None = None) -> None:
 
     settings_path = get_settings_path()
     settings_path.parent.mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(
+    atomic_write(
+        settings_path,
         json.dumps(settings, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
     )
 
 

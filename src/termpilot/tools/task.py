@@ -19,6 +19,8 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any
 
+from termpilot.utils.atomic_write import atomic_write
+
 logger = logging.getLogger(__name__)
 
 
@@ -78,7 +80,7 @@ def _save_tasks_to_disk() -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     data = {k: v.to_dict() for k, v in _get_tasks().items()
             if v.status != "deleted"}
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write(path, json.dumps(data, ensure_ascii=False, indent=2))
 
 
 # ── 全局任务存储（懒加载）────────────────────────────

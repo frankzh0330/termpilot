@@ -30,6 +30,7 @@ from enum import Enum
 from pathlib import Path
 
 from termpilot.config import get_settings_path
+from termpilot.utils.atomic_write import atomic_write
 
 logger = logging.getLogger(__name__)
 
@@ -808,7 +809,7 @@ def _write_settings(settings: dict) -> None:
     """写入 settings.json。"""
     path = get_settings_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    atomic_write(path, json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
 
 
 def load_permission_rules() -> list[PermissionRule]:
